@@ -1,38 +1,41 @@
 
-stackprune · 3 repos · 15 integrations
-  6 cut   4 review   5 keep   │   potential savings $428/mo (+$168/mo under review)
+stackprune · 3 repos · 14 integrations
+  6 cut   4 review   4 keep
   6 added in AI-assisted commits — 5 of them unused
 
 ✂ CUT — not used, safe to remove
-  LaunchDarkly           feature-flags   api                        $150/mo     Installed (@launchdarkly/node-server-sdk) in api but never imported
+  Algolia                search          web                        ?           Installed (algoliasearch) in web but never imported
+                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
+  LaunchDarkly           feature-flags   api                        ?           Installed (@launchdarkly/node-server-sdk) in api but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
-  Segment (Twilio)       analytics       web                        $120/mo     Installed (@segment/analytics-next) in web but never imported
-                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
-  Algolia                search          web                        $85/mo      Installed (algoliasearch) in web but never imported
-                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
-  Mixpanel               analytics       api                        $28/mo      Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
+  Mixpanel               analytics       api                        ?           Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
                                                                                 ↳ Added in an AI-assisted commit (Cursor) on 2026-05-02
-  Twilio                 sms             api                        $25/mo      Installed (twilio) in api but never imported
+  Segment (Twilio)       analytics       web                        ?           Installed (@segment/analytics-next) in web but never imported
+                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
+  SendGrid               email           worker                     ?           Installed (sendgrid) in worker but never imported
+  Twilio                 sms             api                        ?           Installed (twilio) in api but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
-  SendGrid               email           worker                     $20/mo      Installed (sendgrid) in worker but never imported
 
 ? REVIEW — used, but something looks off
-  Sentry                 error-tracking  api, web, worker           $89/mo      Used in 3 files across api, web, worker
-                                                                                ↳ Overlaps with Bugsnag in acme (error-tracking)
-  Bugsnag                error-tracking  api                        $59/mo      Used in 1 file across api
+  Bugsnag                error-tracking  api                        ?           Used in 1 file across api
                                                                                 ↳ Overlaps with Sentry in acme (error-tracking)
-  Vercel Analytics       analytics       web                        $20/mo      Used in 1 file across web
+  PostHog                analytics       web                        ?           Used in 1 file across web
+                                                                                ↳ Overlaps with Vercel Analytics in acme (analytics)
+  Sentry                 error-tracking  api, web, worker           ?           Used in 3 files across api, web, worker
+                                                                                ↳ Overlaps with Bugsnag in acme (error-tracking)
+  Vercel Analytics       analytics       web                        ?           Used in 1 file across web
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
                                                                                 ↳ Overlaps with PostHog in acme (analytics)
-  PostHog                analytics       web                        free        Used in 1 file across web
-                                                                                ↳ Overlaps with Vercel Analytics in acme (analytics)
 
 ✓ KEEP — in use
-  OpenAI                 ai              api, worker                $640/mo     Used in 2 files across api, worker
-  Stripe                 payments        api, web                   $420/mo     Used in 2 files across api, web
-  Datadog                apm             api                        $310/mo     Used in 1 file across api
-  AWS S3                 storage         worker                     $14/mo      Used in 1 file across worker
-  ParcelPartner          other           api                        ?           Used in 1 file across api
+  AWS S3                 storage         worker                     ?           Used in 1 file across worker
+  Datadog                apm             api                        ?           Used in 1 file across api
+  OpenAI                 ai              api, worker                ?           Used in 2 files across api, worker
+  Stripe                 payments        api, web                   ?           Used in 2 files across api, web
 
-• 1 paid integration has no cost yet — add costs under `integrations:` in stackprune.yml to see savings (`stackprune init` writes a starter file).
+◌ UNKNOWN — external domains in code that match no known vendor
+  parcelpartner.io             1 file       api                            api.parcelpartner.io                                            
+  Track the real ones by adding them under `vendors:` in stackprune.yml; hide your own domains with `ignoreHosts:`.
+
+• 14 paid integrations have no cost yet — add costs under `integrations:` in stackprune.yml to see savings (`stackprune init` writes a starter file).
 • Static scan only. Add the runtime probe (`node --import stackprune/register`) and pass `--usage .stackprune` to catch integrations that are in code but never called.

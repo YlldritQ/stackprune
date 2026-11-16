@@ -144,6 +144,23 @@ describe('scan', () => {
     expect(r.warnings.join('\n')).toMatch(/package\.json: could not parse/);
   });
 
+  it('scans the apps listed in config, grouped by app', async () => {
+    const parent = tempDir();
+    writeFiles(parent, {
+      'shop-api/package.json': JSON.stringify({ dependencies: { '@sentry/node': '1' } }),
+      'shop-api/index.js': "require('@sentry/node')\n",
+      'shop-web/package.json': JSON.stringify({ dependencies: { '@bugsnag/js': '1' } }),
+      'shop-web/index.js': "require('@bugsnag/js')\n",
+      'blog/package.json': JSON.stringify({ dependencies: { '@sentry/node': '1' } }),
+      'blog/index.js': "require('@sentry/node')\n",
+      'audit/stackprune.yml': 'apps:\n  shop: [../shop-api, ../shop-web]\n  blog: [../blog]\n',
+    });
+    const r = await scan({ configPath: join(parent, 'audit/stackprune.yml'), git: false });
+    expect(r.targets.map((t) => `${t.group}:${t.name}`)).toEqual(['shop:shop-api', 'shop:shop-web', 'blog:blog']);
+    // Sentry and Bugsnag overlap inside "shop" (different repos, same app)
+    expect(find(r.integrations, 'bugsnag').overlapsWith).toEqual(['sentry']);
+  });
+
   it('expands a folder of repos into one target per repo', async () => {
     const parent = tempDir();
     for (const name of ['api', 'web']) {

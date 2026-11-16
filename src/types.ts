@@ -23,6 +23,7 @@ export type Category =
   | 'error-tracking'
   | 'feature-flags'
   | 'hosting'
+  | 'localization'
   | 'logging'
   | 'maps'
   | 'marketing'
@@ -145,6 +146,12 @@ export interface IntegrationConfig {
 }
 
 export interface Config {
+  /**
+   * Named apps and the repos/folders that make them up, relative to the config file.
+   * Used when no paths are passed on the command line. A folder of repos is expanded.
+   *   apps: { shop: [../shop-api, ../shop-web], backoffice: [../admin] }
+   */
+  apps?: Record<string, string[]>;
   /** Extra or overriding vendor definitions (in-house APIs, niche vendors, partners). */
   vendors?: Vendor[];
   /** Per-vendor metadata keyed by vendor id. */

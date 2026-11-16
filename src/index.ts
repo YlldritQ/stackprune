@@ -1,3 +1,4 @@
+import { dirname, resolve } from 'node:path';
 import { analyze } from './analyze/verdict.js';
 import { buildCatalog, type Catalog } from './catalog/index.js';
 import { findConfig, loadConfig } from './config.js';
@@ -33,11 +34,13 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 }
 
 export async function scan(opts: ScanOptions = {}): Promise<ScanResult & { catalog: Catalog; scans: TargetScan[] }> {
-  const paths = opts.paths?.length ? opts.paths : ['.'];
+  const explicitPaths = !!opts.paths?.length;
+  const paths = explicitPaths ? opts.paths! : ['.'];
   const configPath = opts.configPath ?? (opts.config ? undefined : findConfig(['.', ...paths]));
   const config = opts.config ?? loadConfig(configPath);
   const catalog = buildCatalog(config.vendors, config.ignore);
-  const targets = opts.targets ?? resolveTargets(paths);
+  const targets =
+    opts.targets ?? (!explicitPaths && config.apps ? appTargets(config.apps, configPath ? dirname(resolve(configPath)) : process.cwd()) : resolveTargets(paths));
 
   const scans = targets.map((t) => scanTarget(t, catalog, { exclude: config.exclude }));
   const gitFlags = new Map<string, boolean>();
@@ -69,6 +72,24 @@ export async function scan(opts: ScanOptions = {}): Promise<ScanResult & { catal
     catalog,
     scans,
   };
+}
+
+/** Targets from `apps:` in config: every repo is grouped under its app's name. */
+function appTargets(apps: Record<string, string[]>, baseDir: string): Target[] {
+  const out: Target[] = [];
+  const seen = new Set<string>();
+  for (const [app, paths] of Object.entries(apps)) {
+    for (const t of resolveTargets(paths.map((p) => resolve(baseDir, p)))) {
+      if (seen.has(t.root)) continue;
+      seen.add(t.root);
+      out.push({ ...t, group: app });
+    }
+  }
+  // Same repo name in two apps → prefix with the app.
+  const counts = new Map<string, number>();
+  for (const t of out) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+  for (const t of out) if ((counts.get(t.name) ?? 0) > 1 && !t.name.includes('/')) t.name = `${t.group}/${t.name}`;
+  return out;
 }
 
 function collectUnknownHosts(scans: TargetScan[], usage: UsageData | undefined, ignore: string[] = []): UnknownHost[] {

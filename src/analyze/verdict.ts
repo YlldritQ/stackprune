@@ -19,6 +19,7 @@ export const OVERLAP_CATEGORIES = new Set<Category>([
   'support',
   'crm',
   'cms',
+  'localization',
 ]);
 
 const DAY = 86_400_000;
@@ -192,10 +193,15 @@ export function analyze({ scans, catalog, config, usage, now = new Date() }: Ana
       (shared.length ? same : elsewhere).push(o);
     }
     if (same.length) {
-      const apps = [...mine].filter((a) => same.some((o) => appsOf(o).has(a)));
       i.overlapsWith = same.map((o) => o.vendor.id);
-      i.reasons.push(`Overlaps with ${list(same.map((o) => o.vendor.name))} in ${list(apps)} (${i.vendor.category})`);
-      if (i.verdict === 'keep') i.verdict = 'review';
+      const perApp = [...mine]
+        .map((a) => ({ app: a, others: same.filter((o) => appsOf(o).has(a)).map((o) => o.vendor.name) }))
+        .filter((x) => x.others.length)
+        .map((x) => `${list(x.others)} in ${x.app}`);
+      i.reasons.push(`Overlaps with ${perApp.join('; ')} (${i.vendor.category})`);
+      // Only something you pay for is worth a review; a free overlap is just a note.
+      const costsMoney = i.cost ? i.cost.monthly > 0 : !!i.vendor.paid;
+      if (i.verdict === 'keep' && costsMoney) i.verdict = 'review';
     } else if (elsewhere.length) {
       i.reasons.push(`Other apps use ${list(elsewhere.map((o) => o.vendor.name))} for ${i.vendor.category} — consolidation candidate`);
     }

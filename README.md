@@ -105,6 +105,12 @@ npx stackprune init ~/code/acme   # writes stackprune.yml
 ```yaml
 currency: EUR
 
+# Optional: name your apps and list their repos (relative to this file). Running
+# `stackprune` with no paths then audits all of them; overlaps are judged per app.
+apps:
+  shop: [../shop-api, ../shop-web, ../shop-mobile]
+  backoffice: [../admin]
+
 integrations:
   stripe:   { owner: payments, purpose: Checkout and subscriptions, cost: 420 }
   sentry:   { owner: platform, cost: { monthly: 89, plan: Team } }

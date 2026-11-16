@@ -711,6 +711,42 @@ export const VENDORS: Vendor[] = [
     hosts: ['api.what3words.com'],
   },
 
+  {
+    id: 'maptiler', name: 'MapTiler', category: 'maps', paid: true, url: 'https://www.maptiler.com/cloud/pricing/',
+    packages: { npm: ['@maptiler/*'], pypi: ['maptiler'] },
+    env: ['MAPTILER_*', 'NEXT_PUBLIC_MAPTILER_*', 'VITE_MAPTILER_*', 'REACT_APP_MAPTILER_*', 'EXPO_PUBLIC_MAPTILER_*'],
+    hosts: ['api.maptiler.com', 'cloud.maptiler.com'],
+  },
+  {
+    id: 'carto-basemaps', name: 'CARTO Basemaps', category: 'maps', paid: false, url: 'https://carto.com/basemaps',
+    packages: { npm: ['@carto/*'] },
+    env: ['CARTO_*'],
+    hosts: ['*.basemaps.cartocdn.com', 'basemaps.cartocdn.com', 'api.carto.com'],
+  },
+  {
+    id: 'openfreemap', name: 'OpenFreeMap', category: 'maps', paid: false, url: 'https://openfreemap.org',
+    hosts: ['tiles.openfreemap.org'],
+  },
+  {
+    id: 'osm-nominatim', name: 'OpenStreetMap Nominatim', category: 'maps', paid: false, url: 'https://operations.osmfoundation.org/policies/nominatim/',
+    env: ['NOMINATIM_*'],
+    hosts: ['nominatim.openstreetmap.org'],
+  },
+  {
+    id: 'osm-tiles', name: 'OpenStreetMap tile servers', category: 'maps', paid: false, url: 'https://operations.osmfoundation.org/policies/tiles/',
+    hosts: ['tile.openstreetmap.org', '*.tile.openstreetmap.org', 'tile.openstreetmap.de'],
+  },
+  {
+    id: 'osrm-demo', name: 'OSRM demo server', category: 'maps', paid: false, url: 'https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server',
+    env: ['OSRM_*'],
+    hosts: ['router.project-osrm.org', 'routing.openstreetmap.de'],
+  },
+  {
+    id: 'photon', name: 'Photon geocoder (komoot)', category: 'maps', paid: false, url: 'https://photon.komoot.io',
+    env: ['PHOTON_*'],
+    hosts: ['photon.komoot.io'],
+  },
+
   // ── Search ──
   {
     id: 'algolia', name: 'Algolia', category: 'search', paid: true, url: 'https://www.algolia.com/pricing/',
@@ -1256,6 +1292,52 @@ export const VENDORS: Vendor[] = [
     modules: { python: ['digitalocean', 'pydo'] },
     env: ['DIGITALOCEAN_*', 'DO_API_TOKEN', 'DO_SPACES_*', 'SPACES_KEY', 'SPACES_SECRET'],
     hosts: ['api.digitalocean.com', '*.digitaloceanspaces.com'],
+  },
+
+  // ── Localization ──
+  {
+    id: 'lokalise', name: 'Lokalise', category: 'localization', paid: true, url: 'https://lokalise.com/pricing',
+    packages: { npm: ['@lokalise/*'], pypi: ['python-lokalise-api'], composer: ['bodrovis/lokalise-php'] },
+    modules: { python: ['lokalise'] },
+    env: ['LOKALISE_*'],
+    hosts: ['api.lokalise.com', 'ota.lokalise.com'],
+  },
+  {
+    id: 'crowdin', name: 'Crowdin', category: 'localization', paid: true, url: 'https://crowdin.com/pricing',
+    packages: { npm: ['@crowdin/*'], pypi: ['crowdin-api-client'] },
+    modules: { python: ['crowdin_api'] },
+    env: ['CROWDIN_*'],
+    hosts: ['api.crowdin.com', '*.api.crowdin.com', 'distributions.crowdin.net'],
+  },
+  {
+    id: 'phrase', name: 'Phrase', category: 'localization', paid: true, url: 'https://phrase.com/pricing/',
+    packages: { npm: ['phrase-js'], rubygems: ['phrase'] },
+    env: ['PHRASE_*', 'PHRASEAPP_*'],
+    hosts: ['api.phrase.com', 'api.us.app.phrase.com', 'ota.eu.phrase.com'],
+  },
+  {
+    id: 'tolgee', name: 'Tolgee', category: 'localization', paid: true, url: 'https://tolgee.io/pricing',
+    packages: { npm: ['@tolgee/*'] },
+    env: ['TOLGEE_*', 'VITE_APP_TOLGEE_*', 'NEXT_PUBLIC_TOLGEE_*'],
+    hosts: ['app.tolgee.io', 'cdn.tolg.ee'],
+  },
+  {
+    id: 'locize', name: 'Locize', category: 'localization', paid: true, url: 'https://locize.com/pricing.html',
+    packages: { npm: ['locize', 'i18next-locize-backend', 'locize-lastused', 'locize-cli'] },
+    env: ['LOCIZE_*', 'NEXT_PUBLIC_LOCIZE_*', 'VITE_LOCIZE_*', 'REACT_APP_LOCIZE_*'],
+    hosts: ['api.locize.app', 'api.locize.io'],
+  },
+  {
+    id: 'simplelocalize', name: 'SimpleLocalize', category: 'localization', paid: true, url: 'https://simplelocalize.io/pricing/',
+    env: ['SIMPLELOCALIZE_*', 'SIMPLE_LOCALIZE_*', 'REACT_APP_SIMPLE_LOCALIZE_*', 'NEXT_PUBLIC_SIMPLELOCALIZE_*', 'VITE_SIMPLELOCALIZE_*'],
+    hosts: ['api.simplelocalize.io', 'cdn.simplelocalize.io'],
+  },
+
+  // ── Paid component licenses ──
+  {
+    id: 'mui-x', name: 'MUI X (Pro / Premium)', category: 'other', paid: true, url: 'https://mui.com/pricing/',
+    packages: { npm: ['@mui/x-data-grid-pro', '@mui/x-data-grid-premium', '@mui/x-date-pickers-pro', '@mui/x-tree-view-pro', '@mui/x-charts-pro', '@mui/x-license', '@mui/x-license-pro'] },
+    env: ['MUI_X_LICENSE*', 'MUIX_LICENSE*', 'MUI_LICENSE*', 'REACT_APP_MUIX_LICENSE*', 'NEXT_PUBLIC_MUI_X_LICENSE*', 'NEXT_PUBLIC_MUI_LICENSE*', 'VITE_MUI_X_LICENSE*', 'VITE_MUI_LICENSE*'],
   },
 
   // ── Other APIs & services ──

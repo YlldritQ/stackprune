@@ -29,8 +29,10 @@ export interface ProjectFacts {
   exts: Set<string>;
   /** Basenames of files present that matter for implicit-use rules (tsconfig.json, postcss.config.js, …). */
   markerFiles: Set<string>;
-  /** Every UPPER_SNAKE token seen in code or env files. */
+  /** Every env var name read in code or set in env / CI / deploy files. */
   envNames: Set<string>;
+  /** Env var names set somewhere outside code: .env files, CI workflows, Dockerfiles, compose, deploy configs. */
+  declaredEnv: Set<string>;
   /** Every hostname seen in code (including comments). */
   hosts: Set<string>;
   envFiles: number;
@@ -60,7 +62,7 @@ const EXPERIMENT =
   /\b(spike|poc|proof[- ]of[- ]concept|experiment(al)?|prototype|playground|scratch|versuch|testlauf|probelauf|do not ship|remove before (merge|release))\b|\b(local|lokale[rn]?|quick|temporary|temp|tempor(ä|ae)re[rn]?|just a|nur ein)\b[^.]{0,30}\btest\b|\w-test\b|\btest[- ]?(only|setup|integration)\b/i;
 
 export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: string[] } = {}): TargetScan {
-  const { files, truncated } = walk(target.root, { exclude: opts.exclude });
+  const { files, truncated, names } = walk(target.root, { exclude: opts.exclude });
   const hits = new Map<string, TargetHit>();
   const unknownHosts = new Map<string, Set<string>>();
   const importAware = new Set<Ecosystem>();
@@ -74,8 +76,9 @@ export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: s
     scriptsText: '',
     configText: '',
     exts: new Set(),
-    markerFiles: new Set(),
+    markerFiles: new Set(names),
     envNames: new Set(),
+    declaredEnv: new Set(),
     hosts: new Set(),
     envFiles: 0,
     workspaceNames: new Set(),
@@ -136,6 +139,7 @@ export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: s
       facts.envFiles++;
       for (const { name: envName, line } of parseEnvNames(text)) {
         facts.envNames.add(envName);
+        facts.declaredEnv.add(envName);
         const vendor = catalog.matchEnv(envName);
         if (vendor) add(vendor, { kind: 'env-declared', file: file.rel, line, detail: envName, dev: file.test });
       }
@@ -164,6 +168,7 @@ export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: s
         add(vendor, { kind: 'import', file: file.rel, line, detail: spec, dev: file.test, ...(marker ? { marker } : {}) });
       }
     }
+    for (const pkg of f.nodeModulesRefs) noteImport('npm', pkg, file.rel);
     if (file.lang === 'python') for (const m of text.matchAll(/['"]([a-z_][a-z0-9_.]*)['"]/g)) facts.pyStrings.add(m[1]!);
     for (const { vendorId, detail, line } of f.awsServices) {
       const vendor = catalog.byId.get(vendorId);
@@ -171,6 +176,7 @@ export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: s
     }
     for (const [token, line] of f.envTokens) {
       facts.envNames.add(token);
+      if (!inCode) facts.declaredEnv.add(token);
       const vendor = catalog.matchEnv(token);
       if (vendor) add(vendor, { kind: inCode ? 'env-referenced' : 'env-declared', file: file.rel, line, detail: token, dev: file.test });
     }
@@ -199,7 +205,7 @@ export function scanTarget(target: Target, catalog: Catalog, opts: { exclude?: s
   // Config files that reference a declared package by name (Expo config plugins, Babel/Next plugins, …)
   for (const pkg of vendorDeclared) {
     const t = facts.configText;
-    if (t.includes(`"${pkg.name}"`) || t.includes(`"${pkg.name}/`) || t.includes(`'${pkg.name}'`) || t.includes(`'${pkg.name}/`)) {
+    if (['"', "'"].some((q) => t.includes(`${q}${pkg.name}${q}`) || t.includes(`${q}${pkg.name}/`) || t.includes(`${q}${pkg.name}:`))) {
       add(pkg.vendor, { kind: 'import', file: 'config', detail: `${pkg.name} (config)` });
     }
   }

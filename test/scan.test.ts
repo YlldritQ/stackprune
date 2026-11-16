@@ -69,7 +69,9 @@ describe('scan', () => {
     expect(mixpanel.reasons[0]).toMatch(/never imported/);
 
     expect(find(r.integrations, 'twilio')).toMatchObject({ status: 'config-only', verdict: 'cut' });
-    expect(find(r.integrations, 'resend')).toMatchObject({ status: 'config-only', verdict: 'review' });
+    // Code that reads the key talks to the service, SDK or not.
+    expect(find(r.integrations, 'resend')).toMatchObject({ status: 'active', verdict: 'keep' });
+    expect(find(r.integrations, 'resend').reasons[0]).toMatch(/reads its settings \(RESEND_API_KEY\)/);
 
     const sentry = find(r.integrations, 'sentry');
     const bugsnag = find(r.integrations, 'bugsnag');

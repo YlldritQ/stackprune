@@ -3,6 +3,8 @@ import type { WalkedFile } from './walk.js';
 export interface FileFindings {
   /** Raw import specifiers (JS specifier, Python dotted module, Go path, Ruby require, Rust crate). */
   imports: { spec: string; line: number }[];
+  /** npm packages referenced by a node_modules/ path (any file kind). */
+  nodeModulesRefs: Set<string>;
   /** UPPER_CASE tokens that look like env var names → first line seen. */
   envTokens: Map<string, number>;
   /** Hostnames from URLs and quoted host strings → first line seen. */
@@ -60,12 +62,18 @@ class Lines {
 
 const JS_IMPORT_RES = [
   /(?:^|[^\w$.])(?:import|export)\s+(?:type\s+)?(?:[\w$*{}\s,]+?\s+from\s+)?['"]([^'"\n]+)['"]/g,
-  /(?:^|[^\w$.])require\(\s*['"]([^'"\n]+)['"]\s*\)/g,
+  // require('x'), and functions from createRequire(): _require('x'), localRequire('x')
+  /(?:^|[^\w$.])[\w$]*[rR]equire\(\s*['"]([^'"\n]+)['"]\s*\)/g,
   /(?:^|[^\w$.])import\(\s*['"]([^'"\n]+)['"]\s*\)/g,
-  /(?:^|[^\w$.])require\.resolve\(\s*['"]([^'"\n]+)['"]\s*\)/g,
+  /(?:^|[^\w$.])[\w$]*[rR]equire\.resolve\(\s*['"]([^'"\n]+)['"]/g,
+  /\bimport\.meta\.resolve\(\s*['"]([^'"\n]+)['"]/g,
 ];
+/** Build scripts and stylesheets that reach into a package by path: `./node_modules/js-cookie/dist/…`. */
+const NODE_MODULES_PATH = /node_modules\/((?:@[\w.-]+\/)?[\w-][\w.-]*)/g;
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)/gm;
-const PY_FROM = /^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+\(?([\w\s,*]+)\)?/gm;
+// Names are either one line or a parenthesised list. `\s` must not appear unbracketed: it would run
+// on into the next `from x import y` line and swallow it.
+const PY_FROM = /^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+(?:\(([^)]*)\)|([\w \t,*]+))/gm;
 const GO_SINGLE = /^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"([^"]+)"/gm;
 const GO_BLOCK = /^[ \t]*import[ \t]*\(([\s\S]*?)\)/gm;
 const RUBY_REQUIRE = /(?:^|\s)require(?:_relative)?\s*\(?\s*['"]([^'"\n]+)['"]/g;
@@ -73,12 +81,31 @@ const RUST_USE = /(?:^|\s)(?:use|extern\s+crate)\s+([a-z_][a-z0-9_]*)/g;
 const CSS_IMPORT = /@(?:import|use|forward|plugin|config|reference)\s+(?:url\(\s*)?['"]~?([^'"\n]+)['"]/g;
 
 const ENV_TOKEN = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g;
+const NAME = '([A-Z][A-Z0-9]*_[A-Z0-9_]+)';
+/**
+ * How code reads an env var. In source files only these count: an UPPER_SNAKE constant
+ * (`const ZOOM_STEP = 0.1`, Django settings) is not an env var.
+ */
+const ENV_ACCESS = [
+  // process.env.X, import.meta.env.X, Bun.env.X, c.env.X (Workers bindings)
+  new RegExp(`\\benv\\??\\.${NAME}\\b`, 'g'),
+  // process.env['X'], os.environ['X'], ENV['X'] (Ruby), $_ENV['X'] (PHP)
+  new RegExp(`(?:\\benv|\\benviron|\\bENV|\\$_ENV|\\$_SERVER)\\s*\\[\\s*['"\`]${NAME}['"\`]\\s*\\]`, 'g'),
+  // os.getenv("X"), os.environ.get("X"), os.Getenv("X"), env("X"), env.str("X"), ENV.fetch("X"),
+  // std::env::var("X"), env!("X"), Deno.env.get("X"), Environment.GetEnvironmentVariable("X"), config("X")
+  new RegExp(
+    `[\\w$.:]*(?:env|Env|ENV|environ|Environ|EnvironmentVariable|config|Config)[\\w$]*!?\\s*(?:\\.\\s*(?:get|fetch|str|bool|int|float|var|string|number|list|url|json)\\s*)?\\(\\s*['"\`]${NAME}['"\`]`,
+    'g',
+  ),
+];
+/** const { A_KEY, B_URL } = process.env */
+const ENV_DESTRUCTURE = /\{([^{}]{1,400})\}\s*=\s*(?:process\.env|import\.meta\.env|Bun\.env|env)\b/g;
 const URL_HOST = /\b(?:https?|wss?):\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi;
 const QUOTED_HOST = /['"`]([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,})(?::\d+)?\/?['"`]/gi;
 
 export function extract(file: WalkedFile, text: string): FileFindings {
   const lines = new Lines(text);
-  const out: FileFindings = { imports: [], envTokens: new Map(), hosts: new Map(), codeUrlHosts: new Set(), awsServices: [] };
+  const out: FileFindings = { imports: [], nodeModulesRefs: new Set(), envTokens: new Map(), hosts: new Map(), codeUrlHosts: new Set(), awsServices: [] };
 
   if (file.kind === 'source') {
     extractImports(file.lang, text, lines, out);
@@ -87,11 +114,28 @@ export function extract(file: WalkedFile, text: string): FileFindings {
   }
 
   let m: RegExpExecArray | null;
-  ENV_TOKEN.lastIndex = 0;
-  while ((m = ENV_TOKEN.exec(text))) {
-    if (out.envTokens.has(m[0])) continue;
-    const line = lines.lineAt(m.index);
-    if (!lines.isComment(line)) out.envTokens.set(m[0], line); // a var mentioned only in a comment isn't wired up
+  if (text.includes('node_modules/')) {
+    NODE_MODULES_PATH.lastIndex = 0;
+    while ((m = NODE_MODULES_PATH.exec(text))) if (!lines.isComment(lines.lineAt(m.index))) out.nodeModulesRefs.add(m[1]!);
+  }
+  const env = (name: string, index: number) => {
+    if (out.envTokens.has(name)) return;
+    const line = lines.lineAt(index);
+    if (!lines.isComment(line)) out.envTokens.set(name, line); // a var mentioned only in a comment isn't wired up
+  };
+  if (file.kind === 'source') {
+    for (const re of ENV_ACCESS) {
+      re.lastIndex = 0;
+      while ((m = re.exec(text))) env(m[1]!, m.index);
+    }
+    ENV_DESTRUCTURE.lastIndex = 0;
+    while ((m = ENV_DESTRUCTURE.exec(text))) {
+      for (const t of m[1]!.matchAll(ENV_TOKEN)) env(t[0], m.index + 1 + t.index!);
+    }
+  } else {
+    // CI workflows, Dockerfiles, compose files, deploy configs: any UPPER_SNAKE name is a setting.
+    ENV_TOKEN.lastIndex = 0;
+    while ((m = ENV_TOKEN.exec(text))) env(m[0], m.index);
   }
   URL_HOST.lastIndex = 0;
   while ((m = URL_HOST.exec(text))) {
@@ -146,7 +190,7 @@ function extractImports(lang: WalkedFile['lang'], text: string, lines: Lines, ou
         const base = m[1]!;
         if (base.startsWith('.')) continue;
         push(out, lines, base, m.index);
-        for (const part of m[2]!.split(',')) {
+        for (const part of (m[2] ?? m[3] ?? '').split(',')) {
           const name = part.trim().split(/\s+/)[0];
           if (name && name !== '*') push(out, lines, `${base}.${name}`, m.index);
         }

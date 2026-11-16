@@ -1,7 +1,7 @@
 {
   "name": "stackprune",
   "version": "0.1.0",
-  "description": "Keep your dependencies clean: find unused packages, duplicate libraries and paid integrations nobody uses \u2014 in your repo, on every PR, and in production.",
+  "description": "Keep your dependencies clean: find unused packages, duplicate libraries and paid integrations nobody uses — in your repo, on every PR, and in production.",
   "type": "module",
   "license": "MIT",
   "author": "Ylldrit Qallakaj",
@@ -50,7 +50,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "dev": "tsx src/cli.ts",

@@ -32,7 +32,7 @@ export function analyzePackages(input: {
     const key = `${u.ecosystem}:${u.name}:${runtime ? 'rt' : 'st'}`;
     let entry = unusedByKey.get(key);
     if (!entry) {
-      entry = { ecosystem: u.ecosystem, name: u.name, dev: u.dev, confidence: u.confidence, where: [], reason, runtime: runtime || undefined };
+      entry = { ecosystem: u.ecosystem, name: u.name, dev: u.dev, confidence: u.confidence, where: [], reason, runtime: runtime || undefined, ...(u.hint && !runtime ? { hint: u.hint } : {}) };
       unusedByKey.set(key, entry);
     }
     if (u.confidence === 'high') entry.confidence = 'high';
@@ -48,7 +48,7 @@ export function analyzePackages(input: {
       // Paid vendors are reported as integrations, not here.
       if (catalog.matchPackage(u.ecosystem, u.name)) continue;
       if (!u.used) {
-        addUnused(u, target, 'Declared but never imported, run or configured');
+        addUnused(u, target, `Declared but never imported, run or configured${u.hint ? ` (${u.hint})` : ''}`);
       } else if (loaded && loaded.size >= MIN_LOADED_FOR_RUNTIME && u.ecosystem === 'npm' && !u.dev && u.usedBy === 'import' && !loaded.has(u.name)) {
         addUnused(u, target, `Imported in ${u.files.length} file${u.files.length === 1 ? '' : 's'}, but never loaded in production (${runtimeDays} day${runtimeDays === 1 ? '' : 's'} of data)`, true);
       }
@@ -74,7 +74,8 @@ function findDuplicates(uses: Map<string, PackageUse[]>, purposes: PurposeGroup[
     let m = byApp.get(app);
     if (!m) byApp.set(app, (m = new Map()));
     for (const u of list) {
-      if (!u.used) continue;
+      // Only libraries the code really uses: present as types, peers or by convention isn't a second library.
+      if (!u.used || u.usedBy === 'types' || u.usedBy === 'peer' || u.usedBy === 'implicit') continue;
       const key = `${u.ecosystem}:${u.name}`;
       let e = m.get(key);
       if (!e) m.set(key, (e = { files: new Set(), targets: new Set(), eco: u.ecosystem }));

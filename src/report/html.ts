@@ -163,11 +163,11 @@ document.getElementById('q').addEventListener('input',function(e){q=e.target.val
 render();
 function section(id,title,sub){var u=document.getElementById(id);u.appendChild(el('h2',{text:title}));if(sub)u.appendChild(el('p',{cls:'muted',text:sub}));return u}
 if(D.unusedPackages.length){
-  var up=section('packages','Unused packages','Declared, but nothing imports, runs or configures them. "Check first" means dev tooling, plugins or native modules, which are used in ways a scan can miss.');
+  var up=section('packages','Unused packages','Declared, but nothing imports, runs or configures them. "Check first" marks the ones a scan is more likely to get wrong (dev tooling, plugins, native modules, optional extras); the note under a package says why.');
   var tp=el('table',{cls:'hosts'},[el('tr',{},[el('th',{text:'Package'}),el('th',{text:'Where'}),el('th',{text:'Kind'}),el('th',{cls:'h-hosts',text:'Added'})])]);
   D.unusedPackages.forEach(function(u){
     var added=(u.introducedAt?u.introducedAt.slice(0,10):'')+(u.introducedBy?' · '+u.introducedBy:'');
-    tp.appendChild(el('tr',{},[el('td',{},[el('code',{text:u.name}),u.introducedWithAI?el('span',{cls:'pill ai',text:'AI · '+u.introducedWithAI}):null]),el('td',{text:u.where.map(function(w){return w.target+'/'+w.manifest}).join(', ')}),el('td',{cls:'muted',text:(u.dev?'dev':'prod')+(u.confidence==='low'?' · check first':'')+(u.runtime?' · prod data':'')}),el('td',{cls:'h-hosts muted',text:added||'—'})]))});
+    tp.appendChild(el('tr',{},[el('td',{},[el('code',{text:u.name}),u.introducedWithAI?el('span',{cls:'pill ai',text:'AI · '+u.introducedWithAI}):null,(u.hint||u.runtime)?el('div',{cls:'muted',text:u.runtime?u.reason:u.hint}):null]),el('td',{text:u.where.map(function(w){return w.target+'/'+w.manifest}).join(', ')}),el('td',{cls:'muted',text:(u.dev?'dev':'prod')+(u.confidence==='low'?' · check first':'')+(u.runtime?' · prod data':'')}),el('td',{cls:'h-hosts muted',text:added||'—'})]))});
   up.appendChild(tp);
 }
 if(D.duplicates.length){

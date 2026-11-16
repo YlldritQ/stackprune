@@ -2,6 +2,7 @@ import type { VendorSpend } from '../billing.js';
 import type { Catalog } from '../catalog/index.js';
 import type { UsageData } from '../runtime/usage.js';
 import type { TargetScan } from '../scan/index.js';
+import { isEnvFile } from '../scan/walk.js';
 import type { Category, Config, CostEntry, Integration, IntegrationConfig, Status, TargetHit, Verdict } from '../types.js';
 
 /** Categories where running two vendors side by side is usually redundant. */
@@ -25,10 +26,16 @@ export const OVERLAP_CATEGORIES = new Set<Category>([
 
 const DAY = 86_400_000;
 
+/** Set by the hosting platform itself, so no env file in the repo is expected to define them. */
+const PLATFORM_VAR = /^(VERCEL|NETLIFY|RENDER|RAILWAY|FLY|HEROKU|CF_PAGES|GITHUB|GITLAB|CI|AWS_LAMBDA|AWS_EXECUTION_ENV|K_SERVICE|FUNCTION_|WEBSITE_|AZURE_FUNCTIONS|EAS_BUILD|EXPO_PUBLIC_EAS)(_|$)/;
+
+const isDotenv = (file: string) => isEnvFile(file.split('/').pop() ?? file);
+
 function targetStatus(hit: TargetHit, scan: TargetScan | undefined): Status {
   const prod = hit.evidence.filter((e) => !e.dev);
   if (!prod.length) return 'dev-only';
-  if (prod.some((e) => e.kind === 'import' || e.kind === 'host')) return 'active';
+  // An env var read in code means the code talks to the service, SDK or not.
+  if (prod.some((e) => e.kind === 'import' || e.kind === 'host' || e.kind === 'env-referenced')) return 'active';
   const manifests = prod.filter((e) => e.kind === 'manifest');
   // We can't see imports for every ecosystem (PHP, .NET). Don't call those unused.
   if (manifests.some((e) => e.ecosystem && !scan?.importAware.has(e.ecosystem))) return 'active';
@@ -127,13 +134,14 @@ export function analyze({ scans, catalog, config, usage, spend, currency = 'USD'
         break;
       }
       case 'config-only': {
-        const declaredIn = list(prod.filter((e) => e.kind === 'env-declared').map((e) => e.file));
-        if (envRefs.length) {
-          verdict = 'review';
-          reasons.push(`Only read as env vars (${list(envRefs.map((e) => e.detail))}) — no SDK import or API host in code. Fine if a framework consumes them; otherwise dead config`);
+        const files = [...new Set(prod.map((e) => e.file))];
+        const elsewhere = files.filter((f) => !isDotenv(f));
+        if (elsewhere.length) {
+          // CI secrets, Dockerfile build args, deploy configs: used by the pipeline, not the app.
+          reasons.push(`Only set in CI / deploy config (${list(elsewhere)}), not read by app code`);
         } else {
           verdict = 'cut';
-          reasons.push(`Configured (${list(prod.map((e) => e.detail))} in ${declaredIn}) but nothing in code uses it`);
+          reasons.push(`Listed in ${list(files)} (${list(prod.map((e) => e.detail))}) but nothing reads it`);
         }
         break;
       }
@@ -149,15 +157,20 @@ export function analyze({ scans, catalog, config, usage, spend, currency = 'USD'
         break;
       case 'active': {
         const n = codeFiles;
-        reasons.push(`Used in ${n} file${n === 1 ? '' : 's'} across ${list(where('active'))}`);
+        const direct = prod.filter((e) => (e.kind === 'import' && !e.via) || e.kind === 'host');
+        const via = prod.filter((e) => e.kind === 'import' && e.via);
+        if (direct.length) reasons.push(`Used in ${n} file${n === 1 ? '' : 's'} across ${list(where('active'))}`);
+        else if (via.length) reasons.push(`Used through ${list(via.map((e) => e.via!))}, not imported directly`);
+        else reasons.push(`Code reads its settings (${list(envRefs.map((e) => e.detail))}) in ${n} file${n === 1 ? '' : 's'}; no SDK, so it likely calls the API directly`);
         if (u?.calls) reasons.push(`${u.calls.toLocaleString('en-US')} calls at runtime`);
 
-        // Wired up, but maybe never switched on: the code needs a key no env file sets.
+        // Wired up, but maybe never switched on: the SDK is imported, but nothing in the repo sets its key.
+        const sdkImported = prod.some((e) => e.kind === 'import' && !e.via);
         const hasHost = prod.some((e) => e.kind === 'host');
-        const declaredEnv = new Set(prod.filter((e) => e.kind === 'env-declared').map((e) => e.detail));
-        const readEnv = [...new Set(envRefs.map((e) => e.detail))];
+        const readEnv = [...new Set(envRefs.map((e) => e.detail))].filter((e) => !PLATFORM_VAR.test(e));
+        const declaredAnywhere = (name: string) => hits.some((h) => scanByTarget.get(h.target)?.facts.declaredEnv.has(name));
         const envFilesSeen = hits.every((h) => (scanByTarget.get(h.target)?.facts.envFiles ?? 0) > 0);
-        if (!hasHost && readEnv.length && envFilesSeen && !readEnv.some((e) => declaredEnv.has(e))) {
+        if (sdkImported && !hasHost && readEnv.length && envFilesSeen && !readEnv.some(declaredAnywhere)) {
           reasons.push(`Needs ${list(readEnv)}, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off`);
           verdict = 'review';
         }

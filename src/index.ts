@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { analyze } from './analyze/verdict.js';
 import { buildCatalog, type Catalog } from './catalog/index.js';
-import { findConfig, loadConfig } from './config.js';
+import { configDirsFor, findConfig, loadConfig } from './config.js';
 import { isNoiseHost, registrableDomain } from './hosts.js';
 import { loadUsage, type UsageData } from './runtime/usage.js';
 import { analyzePackages } from './analyze/packages.js';
@@ -44,7 +44,8 @@ export async function scan(opts: ScanOptions = {}): Promise<ScanResult & { catal
   const explicitPaths = !!opts.paths?.length;
   const paths = explicitPaths ? opts.paths! : ['.'];
   // The config next to the code being scanned wins over one in the current folder.
-  const configPath = opts.configPath ?? (opts.config ? undefined : findConfig(explicitPaths ? [...paths, '.'] : ['.']));
+  // A config next to (or above, within the repo) the scanned code; the current folder only when no path is given.
+  const configPath = opts.configPath ?? (opts.config ? undefined : findConfig(explicitPaths ? paths.flatMap(configDirsFor) : ['.']));
   const config = opts.config ?? loadConfig(configPath);
   const baseDir = configPath ? dirname(resolve(configPath)) : process.cwd();
   const currency = config.currency ?? 'USD';
@@ -61,6 +62,18 @@ export async function scan(opts: ScanOptions = {}): Promise<ScanResult & { catal
 
   // Package hygiene: every declared dependency, used or not.
   const uses = new Map(scans.map((s) => [s.target.name, checkPackages(s)]));
+  // A vendor package used without an import of its own (a driver another library loads, a CLI,
+  // a tool config file) is in use as an integration too.
+  for (const s of scans) {
+    for (const u of uses.get(s.target.name) ?? []) {
+      if (!u.used || u.usedBy === 'import' || u.usedBy === 'types') continue;
+      const vendor = catalog.matchPackage(u.ecosystem, u.name);
+      const hit = vendor && s.hits.get(vendor.id);
+      if (!hit || hit.evidence.some((e) => e.kind === 'import' && e.detail.startsWith(u.name))) continue;
+      const via = u.via ?? (u.usedBy === 'script' ? 'package.json scripts' : 'tool config');
+      hit.evidence.push({ kind: 'import', file: u.manifest, line: u.line, detail: `${u.name} (${u.usedBy})`, via, dev: u.dev });
+    }
+  }
 
   const usage: UsageData | undefined = opts.usage?.length ? loadUsage(opts.usage, catalog) : undefined;
   const billingPaths = [...(opts.billing ?? []), ...(config.billing ?? []).map((p) => resolve(baseDir, p))];
@@ -173,7 +186,7 @@ function collectUnknownHosts(scans: TargetScan[], usage: UsageData | undefined, 
 
 export { analyze } from './analyze/verdict.js';
 export { buildCatalog, Catalog, VENDORS } from './catalog/index.js';
-export { findConfig, loadConfig } from './config.js';
+export { configDirsFor, findConfig, loadConfig } from './config.js';
 export { loadUsage } from './runtime/usage.js';
 export { loadBilling, matchBilling } from './billing.js';
 export { PURPOSES } from './catalog/purposes.js';

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { check, renderCheckMarkdown, renderCheckTerminal } from './check.js';
@@ -11,13 +11,15 @@ import { renderMarkdown } from './report/markdown.js';
 import { renderTerminal } from './report/terminal.js';
 import type { ScanResult } from './types.js';
 
-const VERSION = '0.1.0';
+const VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+const FORMATS = ['table', 'md', 'markdown', 'json', 'html'];
+const FAIL_ON = ['cut', 'review'];
 
 const HELP = `stackprune — unused packages, duplicate libraries and paid integrations nobody uses
 
 Usage
   stackprune [scan] [paths...]      Scan repos (a folder of repos is expanded) and report
-  stackprune check --base <ref>     Show integrations a branch adds vs <ref> (for CI / PRs)
+  stackprune check --base <ref>     What a branch adds vs <ref>: integrations, unused or duplicate packages
   stackprune init [paths...]        Write a starter stackprune.yml from what's detected
   stackprune catalog [search]       List the vendors stackprune knows about
 
@@ -26,7 +28,7 @@ Options
   -o, --out <file>     Write the report to a file instead of stdout
   -u, --usage <path>   Runtime usage JSONL file or folder (repeatable), e.g. .stackprune
       --billing <csv>  Bank / card / accounting export to match payments against (repeatable)
-  -c, --config <file>  Config file (default: stackprune.yml next to the scanned code, else in cwd)
+  -c, --config <file>  Config file (default: stackprune.yml in the scanned folder or above it, up to the repo root)
       --no-git         Skip git history (faster; no "added by AI" / staleness signals)
       --all            Show details for every integration
       --fail-on <v>    Exit 1 on findings: cut (unused integrations/packages) | review (also duplicates)
@@ -40,8 +42,11 @@ Examples
   node --import stackprune/register server.js   # collect runtime usage
 `;
 
-async function main(argv: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({
+class UsageError extends Error {}
+
+function parse(argv: string[]) {
+  try {
+    return parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
@@ -58,9 +63,18 @@ async function main(argv: string[]): Promise<number> {
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
-  });
+    });
+  } catch (e) {
+    // Node's own messages are long; keep the part that names the option.
+    const msg = (e as Error).message.replace(/\. To specify a positional argument.*$/s, '');
+    throw new UsageError(`${msg}. See stackprune --help`);
+  }
+}
 
-  if (values.help) {
+async function main(argv: string[]): Promise<number> {
+  const { values, positionals } = parse(argv);
+
+  if (values.help || positionals[0] === 'help') {
     process.stdout.write(HELP);
     return 0;
   }
@@ -73,6 +87,10 @@ async function main(argv: string[]): Promise<number> {
   const command = positionals[0] && commands.has(positionals[0]) ? positionals[0] : 'scan';
   const args = command === positionals[0] ? positionals.slice(1) : positionals;
   const format = values.format ?? (values.out ? formatFromExt(values.out) : 'table');
+  if (!FORMATS.includes(format)) throw new UsageError(`Unknown --format '${format}'. Use one of: table, md, json, html`);
+  const failOn = values['fail-on'];
+  if (failOn !== undefined && !FAIL_ON.includes(failOn)) throw new UsageError(`Unknown --fail-on '${failOn}'. Use cut or review`);
+  for (const b of values.billing ?? []) if (!existsSync(b)) throw new UsageError(`Billing file not found: ${b}`);
 
   const emit = (text: string) => {
     if (values.out) {
@@ -121,7 +139,6 @@ async function main(argv: string[]): Promise<number> {
     default: {
       const r = await scan({ paths: args, configPath: values.config, usage: values.usage, billing: values.billing, git: !values['no-git'] });
       emit(render(r, format, !!values.all));
-      const failOn = values['fail-on'];
       const unusedHigh = r.unusedPackages.some((u) => u.confidence === 'high');
       if (failOn === 'cut' && (unusedHigh || r.integrations.some((i) => i.verdict === 'cut'))) return 1;
       if (failOn === 'review' && (unusedHigh || r.duplicates.length || r.integrations.some((i) => i.verdict !== 'keep'))) return 1;
@@ -161,6 +178,7 @@ main(process.argv.slice(2)).then(
   },
   (err: unknown) => {
     process.stderr.write(`stackprune: ${err instanceof Error ? err.message : String(err)}\n`);
+    if (!(err instanceof UsageError) && process.env.STACKPRUNE_DEBUG && err instanceof Error) process.stderr.write(`${err.stack}\n`);
     process.exitCode = 2;
   },
 );

@@ -11,7 +11,7 @@
 | **LaunchDarkly** | feature-flags | api | $150/mo | Installed (@launchdarkly/node-server-sdk) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 1 env, 1 dep | — |
 | **Segment (Twilio)** | analytics | web | $120/mo | Installed (@segment/analytics-next) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 1 dep | — |
 | **Algolia** | search | web | $85/mo | Installed (algoliasearch) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 2 envs, 1 dep | — |
-| **Mixpanel** | analytics | api | $28/mo | Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it · Added in an AI-assisted commit (Cursor) on 2026-05-02 | 1 env | — |
+| **Mixpanel** | analytics | api | $28/mo | Listed in .env.example (MIXPANEL_TOKEN) but nothing reads it · Added in an AI-assisted commit (Cursor) on 2026-05-02 | 1 env | — |
 | **Twilio** | sms | api | $25/mo | Installed (twilio) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 2 envs, 1 dep | — |
 | **SendGrid** | email | worker | $20/mo | Installed (sendgrid) in worker but never imported | 1 dep | — |
 

@@ -1,9 +1,28 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Config } from './types.js';
 
 export const CONFIG_FILES = ['stackprune.yml', 'stackprune.yaml', '.stackprune.yml', '.stackprune.yaml', 'stackprune.json', '.stackprune.json'];
+
+/**
+ * Where to look for a config when scanning `path`: the folder itself, then each parent up to and
+ * including the git repo root (a config at the root of a monorepo covers `stackprune packages/web`).
+ * Outside a git repo, only the folder itself.
+ */
+export function configDirsFor(path: string): string[] {
+  const start = resolve(path);
+  const chain: string[] = [];
+  let dir = start;
+  for (let i = 0; i < 25; i++) {
+    chain.push(dir);
+    if (existsSync(join(dir, '.git'))) return chain;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return [start];
+}
 
 export function findConfig(dirs: string[]): string | undefined {
   for (const dir of dirs) {

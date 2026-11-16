@@ -56,7 +56,7 @@ export interface WalkedFile {
   size: number;
 }
 
-const JS_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte', '.astro']);
+const JS_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte', '.astro', '.mdx']);
 const OTHER_SOURCE_EXT: Record<string, WalkedFile['lang']> = {
   '.py': 'python',
   '.go': 'go',
@@ -77,7 +77,7 @@ const OTHER_SOURCE_EXT: Record<string, WalkedFile['lang']> = {
 const CSS_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.pcss']);
 /** Tool config files that reference packages by name (.eslintrc, .babelrc, tsconfig.json, …). */
 const RC_FILE = /^(\.[\w-]+rc(\.(json|ya?ml|js|cjs|mjs|toml))?|tsconfig[\w.-]*\.json|jsconfig\.json|[\w-]+\.config\.json|angular\.json|nest-cli\.json|turbo\.json|nx\.json|project\.json|lerna\.json|components\.json|babel\.config\.json|\.swcrc|deno\.jsonc?|biome\.jsonc?|setup\.cfg|tox\.ini|pytest\.ini|\.pre-commit-config\.ya?ml)$/;
-const CONFIG_EXT = new Set(['.yml', '.yaml', '.toml', '.tf', '.tfvars', '.ini', '.conf', '.properties', '.gradle', '.xml', '.plist']);
+const CONFIG_EXT = new Set(['.yml', '.yaml', '.toml', '.tf', '.tfvars', '.ini', '.conf', '.properties', '.gradle', '.xml', '.plist', '.prisma']);
 const CONFIG_JSON = new Set(['app.json', 'app.config.json', 'vercel.json', 'netlify.json', 'firebase.json', 'eas.json', 'now.json', 'railway.json', 'render.json', 'fly.json', 'wrangler.json', 'wrangler.jsonc', 'serverless.json', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json']);
 const MANIFESTS = new Set(['package.json', 'pyproject.toml', 'Pipfile', 'go.mod', 'Gemfile', 'composer.json', 'Cargo.toml']);
 const SCRIPT_NAMES = new Set(['Dockerfile', 'Procfile', 'Makefile', 'Justfile', 'justfile']);
@@ -110,6 +110,7 @@ function classify(name: string, rel: string): Pick<WalkedFile, 'kind' | 'lang'> 
   }
   if (isEnvFile(name)) return { kind: 'env' };
   if (SCRIPT_NAMES.has(name) || name.startsWith('Dockerfile.') || name.endsWith('.Dockerfile') || name.endsWith('.sh')) return { kind: 'script' };
+  if (/(^|\/)\.husky\/[^/]+$/.test(rel) && !name.includes('.')) return { kind: 'script' }; // git hooks: `npx lint-staged`
   if (/^(docker-)?compose([.-][\w-]+)?\.ya?ml$/.test(name)) return { kind: 'env' };
   if (/\.min\.[cm]?js$|\.bundle\.js$|\.chunk\.js$|\.d\.[cm]?ts$|\.map$/.test(name)) return undefined;
   const ext = extname(name).toLowerCase();
@@ -134,8 +135,10 @@ export interface WalkOptions {
  * Walk a target directory. Skips dependency/build folders and nested git repositories
  * (they are separate targets), keeps files that can carry integration evidence.
  */
-export function walk(root: string, opts: WalkOptions = {}): { files: WalkedFile[]; truncated: boolean } {
+export function walk(root: string, opts: WalkOptions = {}): { files: WalkedFile[]; truncated: boolean; names: Set<string> } {
   const files: WalkedFile[] = [];
+  /** Every file basename seen, kept or not: tool config files decide whether a tool is in use. */
+  const names = new Set<string>();
   const maxFiles = opts.maxFiles ?? 60_000;
   const extraExclude = (opts.exclude ?? []).map((e) => e.replace(/^\/+|\/+$/g, ''));
   let truncated = false;
@@ -154,13 +157,14 @@ export function walk(root: string, opts: WalkOptions = {}): { files: WalkedFile[
       const rel = relative(root, abs).split(sep).join('/');
       if (extraExclude.some((e) => rel === e || rel.startsWith(`${e}/`) || ent.name === e)) continue;
       if (ent.isDirectory()) {
-        if (DEFAULT_EXCLUDE_DIRS.has(ent.name)) continue;
+        if (DEFAULT_EXCLUDE_DIRS.has(ent.name) && !isToolSourceDir(ent.name, abs)) continue;
         if (existsSync(join(abs, 'pyvenv.cfg'))) continue; // python virtualenv with a custom name
         if (existsSync(join(abs, '.git'))) continue; // nested repo / worktree → its own target
         stack.push(abs);
         continue;
       }
       if (!ent.isFile()) continue;
+      names.add(ent.name);
       const c = classify(ent.name, rel);
       if (!c) continue;
       let size = 0;
@@ -173,12 +177,22 @@ export function walk(root: string, opts: WalkOptions = {}): { files: WalkedFile[
       files.push({ abs, rel, ...c, test: isTestPath(rel), size });
       if (files.length >= maxFiles) {
         truncated = true;
-        return { files, truncated };
+        return { files, truncated, names };
       }
     }
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { files, truncated };
+  return { files, truncated, names };
+}
+
+/** `build/` is usually output, but Go and Python repos keep build tooling source there. */
+function isToolSourceDir(name: string, abs: string): boolean {
+  if (name !== 'build' && name !== 'out') return false;
+  try {
+    return readdirSync(abs).some((f) => /\.(go|py|rs|rb)$/.test(f));
+  } catch {
+    return false;
+  }
 }
 
 export function displayName(root: string): string {

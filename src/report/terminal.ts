@@ -75,13 +75,18 @@ export function renderTerminal(r: ScanResult, opts: { all?: boolean; width?: num
     out.push('');
     out.push(`${red(bold('▢ UNUSED PACKAGES'))} ${dim('— declared, but nothing imports, runs or configures them')}`);
     for (const u of shown) {
-      const where = u.where.map((w) => `${w.target}${w.manifest !== 'package.json' && w.manifest !== 'requirements.txt' && w.manifest !== 'go.mod' ? `/${w.manifest}` : ''}`);
+      // The manifest's folder (apps/web), prefixed with the repo when several were scanned.
+      const where = u.where.map((w) => {
+        const folder = w.manifest.includes('/') ? w.manifest.slice(0, w.manifest.lastIndexOf('/')) : '';
+        return r.targets.length > 1 ? `${w.target}${folder ? `/${folder}` : ''}` : folder || '(root)';
+      });
       const tags = [u.dev ? 'dev' : '', u.confidence === 'low' ? 'check' : '', u.runtime ? 'prod data' : ''].filter(Boolean).join(', ');
       const added = u.introducedAt ? `added ${u.introducedAt.slice(0, 10)}${u.introducedBy ? ` by ${u.introducedBy}` : ''}` : '';
       const ai = u.introducedWithAI ? magenta(` · AI: ${u.introducedWithAI}`) : '';
-      out.push(`  ${pad(bold(u.name), 34)} ${pad(where.join(', '), 34)} ${pad(dim(tags), 16)} ${dim(added)}${ai}${u.runtime ? `\n${' '.repeat(88)}${dim('↳ ' + u.reason)}` : ''}`);
+      const note = u.runtime ? u.reason : u.hint;
+      out.push(`  ${pad(bold(u.name), 34)} ${pad(where.join(', '), 34)} ${pad(dim(tags), 16)} ${dim(added)}${ai}${note ? `\n${' '.repeat(4)}${dim('↳ ' + note)}` : ''}`);
     }
-    if (!opts.all && lowUnused.length) out.push(dim(`  + ${lowUnused.length} more to double-check (dev tooling, plugins, native modules): use --all`));
+    if (!opts.all && lowUnused.length) out.push(dim(`  + ${lowUnused.length} more to double-check (dev tooling, plugins, native modules, optional extras): use --all`));
   }
 
   if (r.duplicates.length) {

@@ -109,6 +109,8 @@ export function isNoiseHost(host: string, ignore: string[] = []): boolean {
   if (NOISE_SUFFIX.some((s) => h.endsWith(s))) return true;
   if (NOISE_PREFIX.some((p) => h.startsWith(p))) return true;
   if (!/\.[a-z]{2,}$/.test(h)) return true; // e.g. "foo.bar1"
+  // Placeholders from docs and .env.example: your-provider.com, yourdomain.com, my-app.example
+  if (/^(your|my)[-_]?(own[-_]?)?(domain|site|app|company|provider|server|host|instance|project|api|bucket|store|org|tenant)\b/.test(registrableDomain(h))) return true;
   for (const pattern of ignore) {
     const p = pattern.toLowerCase();
     if (p.startsWith('*.') ? h === p.slice(2) || h.endsWith(p.slice(1)) : h === p || registrableDomain(h) === p) return true;

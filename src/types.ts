@@ -97,6 +97,8 @@ export interface Evidence {
   dev?: boolean; // devDependency / test file
   /** For imports: the file's header comment calls it a test/spike/PoC/experiment. */
   marker?: string;
+  /** Used without an import of its own: the package or file that pulls it in. */
+  via?: string;
 }
 
 export interface GitInfo {
@@ -253,6 +255,8 @@ export interface UnusedPackage {
   confidence: 'high' | 'low';
   where: { target: string; group?: string; manifest: string; line?: number }[];
   reason: string;
+  /** Why it's low confidence, or that it's a redundant second copy in a monorepo. */
+  hint?: string;
   /** Flagged from production data (imported in code, never loaded at runtime). */
   runtime?: boolean;
   introducedAt?: string;

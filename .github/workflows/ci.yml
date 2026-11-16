@@ -10,11 +10,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         node: [20, 22, 24]
+        include:
+          - { os: windows-latest, node: 22 }
+          - { os: macos-latest, node: 22 }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,6 +38,34 @@ jobs:
       - run: pnpm build
       - name: Scan this repo
         run: node dist/cli.js . --no-git
+
+  package:
+    # Install the packed tarball into an empty project, the way npm users get it, on the oldest Node we support.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          standalone: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack, install and run
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/app" && cd "$RUNNER_TEMP/app"
+          echo '{"name":"t","private":true,"type":"module","dependencies":{"left-pad":"1"}}' > package.json
+          echo "import pad from 'left-pad'" > a.js
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/stackprune-*.tgz
+          bin=./node_modules/.bin/stackprune
+          test "$($bin --version)" = "$(node -p "require('$GITHUB_WORKSPACE/package.json').version")"
+          $bin . --no-git --fail-on cut
+          $bin . --no-git --format json > report.json && node -e "JSON.parse(require('fs').readFileSync('report.json','utf8'))"
+          STACKPRUNE_OUT="$RUNNER_TEMP/usage" node --import stackprune/register -e "setTimeout(() => {}, 10)"
+          node -e "import('stackprune').then((m) => { if (typeof m.scan !== 'function') process.exit(1) })"
 
   action:
     # Dogfood the GitHub Action on our own pull requests.

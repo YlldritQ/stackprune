@@ -11,7 +11,7 @@ stackprune · 3 repos · 16 integrations · 27 dependencies
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
   Algolia                search          web                        $85/mo      Installed (algoliasearch) in web but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
-  Mixpanel               analytics       api                        $28/mo      Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
+  Mixpanel               analytics       api                        $28/mo      Listed in .env.example (MIXPANEL_TOKEN) but nothing reads it
                                                                                 ↳ Added in an AI-assisted commit (Cursor) on 2026-05-02
   Twilio                 sms             api                        $25/mo      Installed (twilio) in api but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-03-18

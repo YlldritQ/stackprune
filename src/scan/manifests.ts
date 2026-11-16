@@ -9,6 +9,8 @@ export interface DeclaredPackage {
   version?: string;
   /** go.mod `// indirect` requirements are kept but flagged. */
   indirect?: boolean;
+  /** pyproject extras (`[project.optional-dependencies]`) that aren't dev/test/docs groups. */
+  optional?: boolean;
 }
 
 function lineOf(text: string, index: number): number {
@@ -185,7 +187,9 @@ function parsePyproject(text: string): DeclaredPackage[] {
       const start = i;
       while (!body.includes(']') && i + 1 < lines.length) body += `\n${lines[++i]}`;
       const dev = table === 'dependency-groups' ? /dev|test|lint|docs?/.test(key) : table === 'project.optional-dependencies' ? /dev|test|lint|docs?/.test(key) : false;
-      for (const name of pep508Names(body)) out.push({ ecosystem: 'pypi', name, dev, line: start + 1 });
+      // Extras (`pip install x[cuda]`) are opt-in variants and plugins, often loaded with try/except.
+      const optional = table === 'project.optional-dependencies' && !dev ? { optional: true } : {};
+      for (const name of pep508Names(body)) out.push({ ecosystem: 'pypi', name, dev, line: start + 1, ...optional });
       continue;
     }
     // Poetry: [tool.poetry.dependencies] name = "^1.0"

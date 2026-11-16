@@ -25,6 +25,7 @@ Dependency tools see packages. Finance sees invoices. Nobody connects them. stac
 | | Example |
 |---|---|
 | **Unused packages** | `lodash` is in `package.json`, but nothing imports, runs or configures it |
+| **Redundant copies** | a monorepo app declares `react-rnd`, but only `packages/ui` imports it, and declares it too |
 | **Duplicate libraries** | Day.js in 41 files, Moment in 3, date-fns in 1: pick one, and moving the rest touches 4 files |
 | **Unused integrations** | Twilio is installed and never imported, or `MIXPANEL_TOKEN` is set and nothing reads it |
 | **Switched-off integrations** | the SDK is wired up, but the key it needs isn't set anywhere |
@@ -47,7 +48,7 @@ stackprune · 3 repos · 16 integrations · 27 dependencies
   LaunchDarkly      feature-flags   api   $150/mo   Installed (@launchdarkly/node-server-sdk) in api but never imported
                                                     ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
   Segment (Twilio)  analytics       web   $120/mo   Installed (@segment/analytics-next) in web but never imported
-  Mixpanel          analytics       api   $28/mo    Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
+  Mixpanel          analytics       api   $28/mo    Listed in .env.example (MIXPANEL_TOKEN) but nothing reads it
 
 ? REVIEW — integrations where something looks off
   Telemetrix        other           web   $99/mo    Used in 1 file across web
@@ -167,7 +168,7 @@ It reads the CSV most banks and tools export: comma, semicolon or tab separated,
 
 ## Configuration
 
-`stackprune.yml` next to the code you scan (or `.stackprune.yml` / `stackprune.json`, or `--config`):
+`stackprune.yml` in the folder you scan, or above it up to the repo root (or `.stackprune.yml` / `stackprune.json`, or `--config`):
 
 ```yaml
 currency: EUR
@@ -208,23 +209,32 @@ check:
 ## How it decides
 
 **Is a package used?** It counts as used if any of these hold:
-- something under its manifest's folder imports it (JS/TS, CSS `@import`, Python, Go);
-- a script runs it: `package.json` scripts, Dockerfiles, Procfiles, CI workflows, including CLI names read from `node_modules` (`typescript` → `tsc`);
-- a config file names it (`.eslintrc` `plugins: ["react"]`, Babel/PostCSS/Vite/Next configs, `app.json` plugins);
-- it's a type package for something you use, or a peer dependency of something you use;
+- code imports it: JS/TS (including `.vue`, `.svelte`, `.astro`, `.mdx`), CSS `@import`, Python, Go. In a monorepo the import counts for the nearest workspace that declares the package; a package hoisted from a sibling workspace counts for whoever declares it, and the root manifest covers every workspace;
+- a build file reaches into it by path (`./node_modules/js-cookie/dist/…`);
+- a script runs it: `package.json` scripts, git hooks, Dockerfiles, Procfiles, CI workflows, including CLI names that differ from the package (`typescript` → `tsc`, `react-email` → `email`);
+- a config file names it (`.eslintrc` `plugins: ["react"]`, `angular.json` builders, `schema.prisma` generators, Django `INSTALLED_APPS`, `mkdocs.yml`), or the tool's own config file exists (`.lintstagedrc`, `jest.config.ts`, `turbo.json`);
+- it's a type package for something you use (`@types/*`, Python `types-*` / `*-stubs`), or something you use needs it (`@angular/compiler`, a driver `unstorage` loads, pytest plugins, a `radix-ui` meta-package);
 - a framework convention needs it: `.tsx` files need `react`, `.scss` files need `sass`, a `tsconfig.json` needs `typescript`.
 
-Lockfiles are ignored, since they mention everything. Dev tooling, tool plugins and React Native native modules are reported as *check first*, because those are used in ways a scan can miss.
+Lockfiles are ignored, since they mention everything. Findings a scan is more likely to get wrong are reported as *check first*, with the reason: dev tooling, tool plugins, React Native native modules, optional Python extras, GPU runtimes, Vue libraries in projects that auto-import (Nuxt), and building blocks like `@scope/core` next to a `@scope/*` package you use.
 
-**Is it a duplicate?** A catalog of 69 "jobs" (dates, HTTP clients, icons, charts, validation, state, forms, ORMs, loggers, test runners… for npm, PyPI and Go) groups libraries by what they do. A library and its companions (`chart.js` + `react-chartjs-2`) are one family and never count as duplicates of each other. Two families in one app is a duplicate. The most-used one is listed first, along with how many files you'd touch to consolidate.
+**Is it a duplicate?** A catalog of 70 "jobs" (dates, HTTP clients, icons, charts, validation, state, forms, ORMs, loggers, test runners… for npm, PyPI and Go) groups libraries by what they do. A library and its companions (`chart.js` + `react-chartjs-2`) are one family and never count as duplicates of each other. Two families the code really uses (imports, runs or configures, not just their types) in one app is a duplicate. The most-used one is listed first, along with how many files you'd touch to consolidate.
 
 **What about integrations?** 220+ services are recognised by package, env var and API host. Each one gets a verdict:
 
 | Verdict | When |
 |---|---|
-| **cut** | Installed but never imported · credentials configured that nothing reads · you pay for it and no repo references it |
-| **review** | Overlaps with a paid service doing the same job in the same app · the key it needs isn't set anywhere · the file calls itself a test or spike · only read as env vars · zero calls in production · billed, but not found in code |
-| **keep** | Used, with no overlap, or marked `keep: true` |
+| **cut** | Installed but never imported · listed in a `.env` file but nothing reads it · you pay for it and no repo references it |
+| **review** | Overlaps with a paid service doing the same job in the same app · its SDK is imported but nothing in the repo sets the key it reads · the file calls itself a test or spike · zero calls in production · billed, but not found in code |
+| **keep** | Used: imported, called, or its env vars read in code · only used by CI or deploy config · marked `keep: true` |
+
+Env vars count only where code actually reads them (`process.env.X`, `import.meta.env.X`, `os.getenv("X")`, `ENV["X"]`…), so an UPPER_SNAKE constant like `ZOOM_STEP` is never mistaken for Zoom. Variables the hosting platform sets itself (`VERCEL_*`, `RENDER_*`…) aren't expected in an env file.
+
+## Accuracy
+
+Every rule above came from running stackprune on real projects and checking what it reported by hand: Next.js Commerce, Excalidraw, Immich, Gitea, NetBox, the Bluesky app, Documenso, Elk, the FastAPI full-stack template, the Angular RealWorld app and an Express boilerplate (npm, pnpm and yarn workspaces, Python, Go, Nuxt, SvelteKit, Expo, Django). Across them it reports 31 high-confidence unused packages. All 31 were confirmed: 19 are unused outright, 12 are redundant second copies in monorepos. Each one scans in under two seconds with `--no-git`.
+
+Found a false positive? Open an issue with the package and how it's used. Most fixes are one line in a table.
 
 ## Use it as a library
 
@@ -263,6 +273,7 @@ Here's what a finding means, and where it can be wrong:
 - **Bundled apps.** Next.js and webpack server bundles inline their dependencies, so the probe can't see them load. stackprune only uses package data when it saw an app load real `node_modules` packages.
 - **Browser and mobile code** can't be probed from a server. Its findings are static only.
 - **Dynamic imports** (`require(name)`) and plugins loaded by string from code aren't followed. That's why tool plugins are marked *check first*.
+- **Auto-imports** (Nuxt, `unplugin-auto-import`) leave no import line, so Vue libraries in those projects are marked *check first*.
 - **Ruby and PHP** load dependencies through autoloaders, so "unused" can't be judged from imports there.
 - **The catalogs are finite.** Unlisted SDK detection, unknown domains and `vendors:` fill the gaps, and PRs are welcome.
 

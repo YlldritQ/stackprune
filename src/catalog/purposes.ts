@@ -411,7 +411,8 @@ export const PURPOSES: PurposeGroup[] = [
       { name: 'i18next', packages: ['i18next', 'i18next-*', 'react-i18next', 'next-i18next', 'remix-i18next'] },
       {
         name: 'FormatJS (react-intl)',
-        packages: ['react-intl', '@formatjs/*', 'babel-plugin-formatjs', 'babel-plugin-react-intl', 'eslint-plugin-formatjs', 'vue-intl'],
+        // not @formatjs/intl-* : those are Intl polyfills that any i18n library may sit on
+        packages: ['react-intl', '@formatjs/intl', '@formatjs/cli', '@formatjs/ts-transformer', 'babel-plugin-formatjs', 'babel-plugin-react-intl', 'eslint-plugin-formatjs', 'vue-intl'],
       },
       { name: 'next-intl', packages: ['next-intl', 'use-intl'] },
       { name: 'Lingui', packages: ['@lingui/*'] },
@@ -774,16 +775,23 @@ export const PURPOSES: PurposeGroup[] = [
     id: 'image-processing',
     label: 'Image processing',
     ecosystem: 'npm',
-    note: 'canvas is often only a test-time dependency of jsdom, so check how it is used',
     families: [
       { name: 'sharp', packages: ['sharp'] },
       { name: 'Jimp', packages: ['jimp', '@jimp/*'] },
-      { name: 'node-canvas', packages: ['canvas'] },
-      { name: '@napi-rs/canvas', packages: ['@napi-rs/canvas'] },
-      { name: 'skia-canvas', packages: ['skia-canvas'] },
       { name: 'gm', packages: ['gm', '@types/gm'] },
       { name: 'image-js', packages: ['image-js'] },
       { name: 'Squoosh', packages: ['@squoosh/lib'] },
+    ],
+  },
+  {
+    id: 'canvas',
+    label: 'Server-side canvas',
+    ecosystem: 'npm',
+    note: 'canvas is often only a test-time dependency of jsdom, so check how it is used',
+    families: [
+      { name: 'node-canvas', packages: ['canvas'] },
+      { name: '@napi-rs/canvas', packages: ['@napi-rs/canvas'] },
+      { name: 'skia-canvas', packages: ['skia-canvas'] },
     ],
   },
   {
@@ -807,12 +815,13 @@ export const PURPOSES: PurposeGroup[] = [
     families: [
       {
         name: 'Jest',
-        packages: ['jest', 'jest-*', 'ts-jest', 'babel-jest', '@jest/*', '@swc/jest', '@types/jest', 'jest-preset-angular'],
+        // runners and their configs only: jest-diff, jest-extended & co. are libraries any runner can use
+        packages: ['jest', 'jest-cli', 'ts-jest', 'babel-jest', '@jest/globals', '@jest/core', '@swc/jest', '@types/jest', 'jest-preset-angular', 'jest-environment-*', 'jest-expo'],
       },
-      { name: 'Vitest', packages: ['vitest', 'vitest-*', '@vitest/*'] },
+      { name: 'Vitest', packages: ['vitest', '@vitest/*'] },
       {
-        name: 'Mocha + Chai + Sinon',
-        packages: ['mocha', 'mocha-*', 'chai', 'chai-*', 'sinon', 'sinon-chai', '@types/mocha', '@types/chai', '@types/sinon', '@types/sinon-chai'],
+        name: 'Mocha',
+        packages: ['mocha', '@types/mocha'],
       },
       { name: 'Jasmine', packages: ['jasmine', 'jasmine-core', 'jasmine-*', '@types/jasmine'] },
       { name: 'AVA', packages: ['ava'] },

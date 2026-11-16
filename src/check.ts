@@ -1,10 +1,10 @@
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { buildCatalog } from './catalog/index.js';
 import { findConfig, loadConfig } from './config.js';
 import { scan } from './index.js';
-import { addWorktree, gitTopLevel, mergeBase } from './scan/git.js';
+import { addWorktree, gitPrefix, gitTopLevel, mergeBase } from './scan/git.js';
 import type { Config, Integration } from './types.js';
 
 export interface CheckResult {
@@ -30,7 +30,7 @@ export async function check(opts: { path?: string; base: string; configPath?: st
   const dir = realpathSync(resolve(opts.path ?? '.'));
   const top = await gitTopLevel(dir);
   if (!top) throw new Error(`${dir} is not inside a git repository`);
-  const sub = relative(top, dir);
+  const sub = await gitPrefix(dir);
   const configPath = opts.configPath ?? findConfig([dir, top]);
   const config: Config = loadConfig(configPath);
 

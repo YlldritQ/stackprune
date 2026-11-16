@@ -21,6 +21,15 @@ export async function gitTopLevel(dir: string): Promise<string | undefined> {
   return (await git(dir, ['rev-parse', '--show-toplevel']))?.trim() || undefined;
 }
 
+/**
+ * Path of `dir` inside its repo ("packages/web/", or "" at the root), as git sees it. Safer than
+ * comparing paths ourselves: on Windows git reports C:/… with forward slashes and may resolve
+ * short 8.3 names (RUNNER~1) differently from Node.
+ */
+export async function gitPrefix(dir: string): Promise<string> {
+  return ((await git(dir, ['rev-parse', '--show-prefix'])) ?? '').trim();
+}
+
 export async function isShallow(dir: string): Promise<boolean> {
   return (await git(dir, ['rev-parse', '--is-shallow-repository']))?.trim() === 'true';
 }

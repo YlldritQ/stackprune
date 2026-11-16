@@ -1,0 +1,102 @@
+name: stackprune
+description: Find third-party integrations you pay for but don't use, and flag new ones on pull requests.
+author: Ylldrit Qallakaj
+branding:
+  icon: scissors
+  color: orange
+
+inputs:
+  command:
+    description: "`check` (pull requests: what does this PR add?) or `scan` (full report)."
+    default: check
+  path:
+    description: Folder to scan, relative to the workspace.
+    default: .
+  base:
+    description: Base ref for `check`. Defaults to the pull request's base commit.
+    default: ""
+  args:
+    description: Extra CLI arguments, e.g. "--usage .stackprune --config ci/stackprune.yml".
+    default: ""
+  comment:
+    description: Post (and keep updating) a PR comment when integrations are added or removed.
+    default: "true"
+  fail-on-violation:
+    description: Fail the job when a new integration breaks the `check:` policy in stackprune.yml.
+    default: "true"
+
+outputs:
+  report:
+    description: Path to the Markdown report.
+    value: ${{ steps.run.outputs.report }}
+  html:
+    description: Path to the HTML report (scan only).
+    value: ${{ steps.run.outputs.html }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Build stackprune
+      shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm install --omit=dev --no-save --no-audit --no-fund --ignore-scripts typescript@5.7.2 @types/node@22.10.2 >/dev/null
+        npx tsc -p tsconfig.build.json
+
+    - name: Run stackprune
+      id: run
+      shell: bash
+      env:
+        SP_COMMAND: ${{ inputs.command }}
+        SP_PATH: ${{ inputs.path }}
+        SP_BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+        SP_ARGS: ${{ inputs.args }}
+      run: |
+        CLI="node $GITHUB_ACTION_PATH/dist/cli.js"
+        MD="$RUNNER_TEMP/stackprune.md"
+        set +e
+        if [ "$SP_COMMAND" = "check" ]; then
+          if [ -z "$SP_BASE" ]; then echo "::error::stackprune check needs a base ref (run on pull_request, or set 'base')"; exit 2; fi
+          git fetch --no-tags --quiet origin "$SP_BASE" 2>/dev/null || true
+          $CLI check "$SP_PATH" --base "$SP_BASE" --format md --out "$MD" $SP_ARGS
+          code=$?
+        else
+          HTML="$RUNNER_TEMP/stackprune-report.html"
+          $CLI scan "$SP_PATH" --format md --out "$MD" $SP_ARGS
+          code=$?
+          $CLI scan "$SP_PATH" --format html --out "$HTML" $SP_ARGS >/dev/null 2>&1
+          echo "html=$HTML" >> "$GITHUB_OUTPUT"
+        fi
+        set -e
+        [ -f "$MD" ] && cat "$MD" >> "$GITHUB_STEP_SUMMARY"
+        echo "report=$MD" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$code" -ge 2 ]; then exit "$code"; fi
+
+    - name: Comment on pull request
+      if: inputs.comment == 'true' && inputs.command == 'check' && github.event.pull_request.number
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+        MD: ${{ steps.run.outputs.report }}
+      run: |
+        existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- stackprune -->")) | .id' | head -n1)
+        if grep -q "No integrations added or removed" "$MD" && [ -z "$existing" ]; then
+          echo "Nothing to report; not commenting."
+        elif [ -n "$existing" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@"$MD" >/dev/null
+        else
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$MD" >/dev/null
+        fi
+
+    - name: Enforce policy
+      if: inputs.fail-on-violation == 'true' && steps.run.outputs.exit-code == '1'
+      shell: bash
+      run: |
+        echo "::error::A new integration has no owner/purpose in stackprune.yml. See the job summary."
+        exit 1

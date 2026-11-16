@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stackprune report</title>
+<style>
+:root{--bg:#f7f7f5;--panel:#fff;--ink:#1b1b1a;--muted:#6b6a66;--line:#e6e4df;--cut:#c2410c;--cut-bg:#fff1e8;--review:#a16207;--review-bg:#fdf6e3;--keep:#15803d;--keep-bg:#ecfaf0;--ai:#7c3aed;--ai-bg:#f3efff;--accent:#1b1b1a;--chip:#f0efeb}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#141413;--panel:#1d1d1b;--ink:#ecebe6;--muted:#9c9a93;--line:#2e2d2a;--cut:#fb923c;--cut-bg:#2a1a10;--review:#facc15;--review-bg:#272111;--keep:#4ade80;--keep-bg:#112417;--ai:#a78bfa;--ai-bg:#1f1830;--accent:#ecebe6;--chip:#262624}}
+:root[data-theme=dark]{--bg:#141413;--panel:#1d1d1b;--ink:#ecebe6;--muted:#9c9a93;--line:#2e2d2a;--cut:#fb923c;--cut-bg:#2a1a10;--review:#facc15;--review-bg:#272111;--keep:#4ade80;--keep-bg:#112417;--ai:#a78bfa;--ai-bg:#1f1830;--accent:#ecebe6;--chip:#262624}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:32px 16px 64px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:20px}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}
+.meta{color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0 24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card .n{font-size:26px;font-weight:650;letter-spacing:-.02em}
+.card .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.card.cut .n{color:var(--cut)}.card.review .n{color:var(--review)}.card.keep .n{color:var(--keep)}.card.ai .n{color:var(--ai)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.bar button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 12px;font:inherit;cursor:pointer}
+.bar button[aria-pressed=true]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.bar input{flex:1;min-width:180px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:6px 14px;font:inherit}
+.list{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.item{border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item summary{list-style:none;display:grid;grid-template-columns:90px minmax(120px,1.1fr) minmax(90px,.7fr) minmax(120px,1fr) 90px minmax(200px,2.4fr);gap:12px;align-items:center;padding:12px 16px;cursor:pointer}
+.item summary::-webkit-details-marker{display:none}
+.item summary:hover{background:var(--chip)}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px;text-align:center}
+.pill.cut{color:var(--cut);background:var(--cut-bg)}.pill.review{color:var(--review);background:var(--review-bg)}.pill.keep{color:var(--keep);background:var(--keep-bg)}
+.pill.ai{color:var(--ai);background:var(--ai-bg);font-weight:500;margin-left:6px}
+.name{font-weight:600}
+.muted{color:var(--muted)}
+.why{color:var(--ink)}
+.why small{display:block;color:var(--muted)}
+.detail{padding:4px 16px 16px 118px;color:var(--muted);font-size:13px}
+.detail table{border-collapse:collapse;width:100%}
+.detail td{padding:3px 8px 3px 0;vertical-align:top;border-bottom:1px dashed var(--line)}
+.detail code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink)}
+.kv{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 10px}
+h2{font-size:15px;margin:32px 0 10px}
+.hosts{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.hosts td,.hosts th{text-align:left;padding:8px 12px;border-top:1px solid var(--line);font-size:13px}
+.hosts th{color:var(--muted);font-weight:500;border-top:0}
+footer{margin-top:40px;color:var(--muted);font-size:12px}
+footer a{color:inherit}
+@media (max-width:820px){.item summary{grid-template-columns:80px 1fr auto;}.item summary .c-cat,.item summary .c-where,.item summary .c-why{grid-column:1/-1}.detail{padding-left:16px}.hosts .h-hosts{display:none}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>stackprune</h1><span class="meta" id="meta"></span></header>
+<section class="cards" id="cards"></section>
+<div class="bar" role="toolbar">
+  <button data-f="all" aria-pressed="true">All</button>
+  <button data-f="cut" aria-pressed="false">Cut</button>
+  <button data-f="review" aria-pressed="false">Review</button>
+  <button data-f="keep" aria-pressed="false">Keep</button>
+  <button data-f="ai" aria-pressed="false">AI-added</button>
+  <input id="q" type="search" placeholder="Filter by name, category, repo…" aria-label="Filter">
+</div>
+<div class="list" id="list"></div>
+<section id="unknown"></section>
+<footer>Generated by <a href="https://github.com/YlldritQ/stackprune">stackprune</a> · <span id="gen"></span></footer>
+</main>
+<script id="data" type="application/json">{"generatedAt":"2026-11-16T16:59:42.742Z","currency":"USD","targets":[{"name":"api","group":"acme","files":7},{"name":"web","group":"acme","files":6},{"name":"worker","group":"acme","files":2}],"summary":{"total":15,"byVerdict":{"cut":6,"review":4,"keep":5},"savingsCut":428,"savingsReview":168,"unpricedPaid":1,"aiIntroduced":6,"aiIntroducedUnused":5,"overlaps":4},"unknownHosts":[],"integrations":[{"id":"launchdarkly","name":"LaunchDarkly","category":"feature-flags","url":"https://launchdarkly.com/pricing/","paid":true,"status":"unused","verdict":"cut","reasons":["Installed (@launchdarkly/node-server-sdk) in api but never imported","Added in an AI-assisted commit (Claude) on 2026-03-18"],"cost":{"monthly":150},"codeFiles":0,"removalFiles":2,"ai":"Claude","introducedAt":"2026-03-18T22:14:00Z","lastTouchedAt":"2026-03-18T22:14:00Z","targets":["api"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":6,"d":"LAUNCHDARKLY_SDK_KEY","dev":false},{"t":"api","k":"manifest","f":"package.json","l":5,"d":"@launchdarkly/node-server-sdk","dev":false}]},{"id":"segment","name":"Segment (Twilio)","category":"analytics","url":"https://segment.com/pricing/","paid":true,"status":"unused","verdict":"cut","reasons":["Installed (@segment/analytics-next) in web but never imported","Added in an AI-assisted commit (Claude) on 2026-04-09"],"cost":{"monthly":120},"codeFiles":0,"removalFiles":1,"ai":"Claude","introducedAt":"2026-04-09T23:05:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["web"],"evidence":[{"t":"web","k":"manifest","f":"package.json","l":5,"d":"@segment/analytics-next","dev":false}]},{"id":"algolia","name":"Algolia","category":"search","url":"https://www.algolia.com/pricing/","paid":true,"status":"unused","verdict":"cut","reasons":["Installed (algoliasearch) in web but never imported","Added in an AI-assisted commit (Claude) on 2026-04-09"],"cost":{"monthly":85},"codeFiles":0,"removalFiles":2,"ai":"Claude","introducedAt":"2026-04-09T23:05:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["web"],"evidence":[{"t":"web","k":"env-declared","f":".env.example","l":3,"d":"NEXT_PUBLIC_ALGOLIA_APP_ID","dev":false},{"t":"web","k":"env-declared","f":".env.example","l":4,"d":"NEXT_PUBLIC_ALGOLIA_SEARCH_KEY","dev":false},{"t":"web","k":"manifest","f":"package.json","l":5,"d":"algoliasearch","dev":false}]},{"id":"mixpanel","name":"Mixpanel","category":"analytics","url":"https://mixpanel.com/pricing/","paid":true,"status":"config-only","verdict":"cut","reasons":["Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it","Added in an AI-assisted commit (Cursor) on 2026-05-02"],"cost":{"monthly":28},"codeFiles":0,"removalFiles":1,"ai":"Cursor","introducedAt":"2026-05-02T01:40:00Z","targets":["api"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":7,"d":"MIXPANEL_TOKEN","dev":false}]},{"id":"twilio","name":"Twilio","category":"sms","url":"https://www.twilio.com/en-us/pricing","paid":true,"status":"unused","verdict":"cut","reasons":["Installed (twilio) in api but never imported","Added in an AI-assisted commit (Claude) on 2026-03-18"],"cost":{"monthly":25},"codeFiles":0,"removalFiles":2,"ai":"Claude","introducedAt":"2026-03-18T22:14:00Z","lastTouchedAt":"2026-03-18T22:14:00Z","targets":["api"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":4,"d":"TWILIO_ACCOUNT_SID","dev":false},{"t":"api","k":"env-declared","f":".env.example","l":5,"d":"TWILIO_AUTH_TOKEN","dev":false},{"t":"api","k":"manifest","f":"package.json","l":5,"d":"twilio","dev":false}]},{"id":"sendgrid","name":"SendGrid","category":"email","url":"https://sendgrid.com/pricing/","paid":true,"status":"unused","verdict":"cut","reasons":["Installed (sendgrid) in worker but never imported"],"cost":{"monthly":20},"codeFiles":0,"removalFiles":1,"introducedAt":"2024-11-20T11:00:00Z","lastTouchedAt":"2024-11-20T11:00:00Z","targets":["worker"],"evidence":[{"t":"worker","k":"manifest","f":"requirements.txt","l":4,"d":"sendgrid","dev":false}]},{"id":"sentry","name":"Sentry","category":"error-tracking","url":"https://sentry.io/pricing/","paid":true,"status":"active","verdict":"review","reasons":["Used in 3 files across api, web, worker","Overlaps with Bugsnag in acme (error-tracking)"],"cost":{"monthly":89},"owner":"platform","codeFiles":3,"removalFiles":7,"introducedAt":"2024-11-20T11:00:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["api","web","worker"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":2,"d":"SENTRY_DSN","dev":false},{"t":"api","k":"manifest","f":"package.json","l":5,"d":"@sentry/node","dev":false},{"t":"api","k":"import","f":"src/errors.ts","l":1,"d":"@sentry/node","dev":false},{"t":"api","k":"env-referenced","f":"src/errors.ts","l":2,"d":"SENTRY_DSN","dev":false},{"t":"web","k":"import","f":"app/sentry.client.config.ts","l":1,"d":"@sentry/nextjs","dev":false},{"t":"web","k":"env-referenced","f":"app/sentry.client.config.ts","l":2,"d":"NEXT_PUBLIC_SENTRY_DSN","dev":false},{"t":"web","k":"manifest","f":"package.json","l":5,"d":"@sentry/nextjs","dev":false},{"t":"worker","k":"import","f":"jobs/reports.py","l":1,"d":"sentry_sdk","dev":false},{"t":"worker","k":"manifest","f":"requirements.txt","l":1,"d":"sentry-sdk","dev":false}]},{"id":"bugsnag","name":"Bugsnag","category":"error-tracking","url":"https://www.bugsnag.com/pricing","paid":true,"status":"active","verdict":"review","reasons":["Used in 1 file across api","Overlaps with Sentry in acme (error-tracking)"],"cost":{"monthly":59},"owner":"mobile","codeFiles":1,"removalFiles":2,"introducedAt":"2025-06-12T15:30:00Z","lastTouchedAt":"2026-03-18T22:14:00Z","targets":["api"],"evidence":[{"t":"api","k":"manifest","f":"package.json","l":5,"d":"@bugsnag/js","dev":false},{"t":"api","k":"import","f":"src/bugsnag.ts","l":1,"d":"@bugsnag/js","dev":false},{"t":"api","k":"env-referenced","f":"src/bugsnag.ts","l":2,"d":"BUGSNAG_API_KEY","dev":false}]},{"id":"vercel-analytics","name":"Vercel Analytics","category":"analytics","url":"https://vercel.com/docs/analytics/limits-and-pricing","paid":true,"status":"active","verdict":"review","reasons":["Used in 1 file across web","Added in an AI-assisted commit (Claude) on 2026-04-09","Overlaps with PostHog in acme (analytics)"],"cost":{"monthly":20},"codeFiles":1,"removalFiles":2,"ai":"Claude","introducedAt":"2026-04-09T23:05:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["web"],"evidence":[{"t":"web","k":"import","f":"app/layout.tsx","l":1,"d":"@vercel/analytics/react","dev":false},{"t":"web","k":"manifest","f":"package.json","l":5,"d":"@vercel/analytics","dev":false}]},{"id":"posthog","name":"PostHog","category":"analytics","url":"https://posthog.com/pricing","paid":true,"status":"active","verdict":"review","reasons":["Used in 1 file across web","Overlaps with Vercel Analytics in acme (analytics)"],"cost":{"monthly":0},"owner":"growth","codeFiles":1,"removalFiles":3,"introducedAt":"2025-02-10T09:00:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["web"],"evidence":[{"t":"web","k":"env-declared","f":".env.example","l":2,"d":"NEXT_PUBLIC_POSTHOG_KEY","dev":false},{"t":"web","k":"import","f":"app/analytics.tsx","l":1,"d":"posthog-js","dev":false},{"t":"web","k":"env-referenced","f":"app/analytics.tsx","l":2,"d":"NEXT_PUBLIC_POSTHOG_KEY","dev":false},{"t":"web","k":"host","f":"app/analytics.tsx","l":2,"d":"eu.i.posthog.com","dev":false},{"t":"web","k":"manifest","f":"package.json","l":5,"d":"posthog-js","dev":false}]},{"id":"openai","name":"OpenAI","category":"ai","url":"https://openai.com/api/pricing/","paid":true,"status":"active","verdict":"keep","reasons":["Used in 2 files across api, worker"],"cost":{"monthly":640},"owner":"ai-team","codeFiles":2,"removalFiles":5,"introducedAt":"2024-11-20T11:00:00Z","lastTouchedAt":"2026-03-18T22:14:00Z","targets":["api","worker"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":3,"d":"OPENAI_API_KEY","dev":false},{"t":"api","k":"manifest","f":"package.json","l":5,"d":"openai","dev":false},{"t":"api","k":"import","f":"src/summaries.ts","l":1,"d":"openai","dev":false},{"t":"worker","k":"import","f":"jobs/reports.py","l":2,"d":"openai","dev":false},{"t":"worker","k":"import","f":"jobs/reports.py","l":2,"d":"openai.OpenAI","dev":false},{"t":"worker","k":"manifest","f":"requirements.txt","l":2,"d":"openai","dev":false}]},{"id":"stripe","name":"Stripe","category":"payments","url":"https://stripe.com/pricing","paid":true,"status":"active","verdict":"keep","reasons":["Used in 2 files across api, web"],"cost":{"monthly":420},"owner":"payments","purpose":"Checkout and subscriptions","codeFiles":2,"removalFiles":6,"introducedAt":"2025-02-03T10:00:00Z","lastTouchedAt":"2026-04-09T23:05:00Z","targets":["api","web"],"evidence":[{"t":"api","k":"env-declared","f":".env.example","l":1,"d":"STRIPE_SECRET_KEY","dev":false},{"t":"api","k":"manifest","f":"package.json","l":5,"d":"stripe","dev":false},{"t":"api","k":"import","f":"src/billing.ts","l":1,"d":"stripe","dev":false},{"t":"api","k":"env-referenced","f":"src/billing.ts","l":2,"d":"STRIPE_SECRET_KEY","dev":false},{"t":"web","k":"env-declared","f":".env.example","l":1,"d":"NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY","dev":false},{"t":"web","k":"import","f":"app/checkout.tsx","l":1,"d":"@stripe/stripe-js","dev":false},{"t":"web","k":"env-referenced","f":"app/checkout.tsx","l":2,"d":"NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY","dev":false},{"t":"web","k":"manifest","f":"package.json","l":5,"d":"@stripe/stripe-js","dev":false}]},{"id":"datadog","name":"Datadog","category":"apm","url":"https://www.datadoghq.com/pricing/","paid":true,"status":"active","verdict":"keep","reasons":["Used in 1 file across api"],"cost":{"monthly":310},"owner":"platform","codeFiles":1,"removalFiles":1,"introducedAt":"2025-02-03T10:00:00Z","lastTouchedAt":"2026-03-18T22:14:00Z","targets":["api"],"evidence":[{"t":"api","k":"manifest","f":"package.json","l":5,"d":"dd-trace","dev":false},{"t":"api","k":"import","f":"package.json","d":"dd-trace (script)","dev":false}]},{"id":"aws-s3","name":"AWS S3","category":"storage","url":"https://aws.amazon.com/s3/pricing/","paid":true,"status":"active","verdict":"keep","reasons":["Used in 1 file across worker","Code using it untouched for 726 days"],"cost":{"monthly":14},"owner":"platform","codeFiles":1,"removalFiles":1,"introducedAt":"2024-11-20T11:00:00Z","lastTouchedAt":"2024-11-20T11:00:00Z","targets":["worker"],"evidence":[{"t":"worker","k":"import","f":"jobs/reports.py","l":6,"d":"boto3.client(\"s3\")","dev":false}]},{"id":"parcelpartner","name":"ParcelPartner","category":"other","paid":true,"status":"active","verdict":"keep","reasons":["Used in 1 file across api","Code using it untouched for 651 days"],"codeFiles":1,"removalFiles":1,"introducedAt":"2025-02-03T10:00:00Z","lastTouchedAt":"2025-02-03T10:00:00Z","targets":["api"],"evidence":[{"t":"api","k":"host","f":"src/shipping.ts","l":1,"d":"api.parcelpartner.io","dev":false}]}]}</script>
+<script>
+(function(){
+var D=JSON.parse(document.getElementById('data').textContent);
+var S=D.summary;
+function fmt(n,cur){try{return new Intl.NumberFormat('en-US',{style:'currency',currency:cur||D.currency,maximumFractionDigits:n%1===0?0:2}).format(n)}catch(e){return n+' '+(cur||D.currency)}}
+function el(tag,attrs,kids){var e=document.createElement(tag);for(var k in attrs||{}){if(k==='text')e.textContent=attrs[k];else if(k==='cls')e.className=attrs[k];else e.setAttribute(k,attrs[k])}(kids||[]).forEach(function(c){if(c)e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
+document.getElementById('meta').textContent=D.targets.length+(D.targets.length===1?' repo':' repos')+' · '+S.total+' integrations'+(D.usageWindow?' · runtime data '+D.usageWindow.from.slice(0,10)+' → '+D.usageWindow.to.slice(0,10):' · static scan');
+document.getElementById('gen').textContent=D.generatedAt.slice(0,16).replace('T',' ');
+var cards=[['cut',S.byVerdict.cut,'to cut'],['review',S.byVerdict.review,'to review'],['keep',S.byVerdict.keep,'in use']];
+if(S.savingsCut||S.savingsReview)cards.push(['',fmt(S.savingsCut)+'/mo','potential savings'+(S.savingsReview?' (+'+fmt(S.savingsReview)+' in review)':'')]);
+if(S.aiIntroduced)cards.push(['ai',S.aiIntroduced,'added by AI-assisted commits'+(S.aiIntroducedUnused?' · '+S.aiIntroducedUnused+' unused':'')]);
+var cw=document.getElementById('cards');cards.forEach(function(c){cw.appendChild(el('div',{cls:'card '+c[0]},[el('div',{cls:'n',text:String(c[1])}),el('div',{cls:'l',text:c[2]})]))});
+var KIND={manifest:'dependency',import:'import','env-declared':'env var (declared)','env-referenced':'env var (read in code)',host:'API host'};
+var filter='all',q='';
+function cost(i){return i.cost?(i.cost.monthly===0?'free':fmt(i.cost.monthly,i.cost.currency)+'/mo'):(i.paid?'unpriced':'free')}
+function render(){
+  var list=document.getElementById('list');list.innerHTML='';
+  var items=D.integrations.filter(function(i){
+    if(filter==='ai'&&!i.ai)return false;
+    if(filter!=='all'&&filter!=='ai'&&i.verdict!==filter)return false;
+    if(q){var h=(i.name+' '+i.category+' '+i.targets.join(' ')+' '+(i.owner||'')).toLowerCase();if(h.indexOf(q)<0)return false}
+    return true});
+  if(!items.length){list.appendChild(el('div',{cls:'detail',style:'padding:16px',text:'Nothing matches.'}));return}
+  items.forEach(function(i){
+    var why=el('div',{cls:'why c-why'},[i.reasons[0]||'',i.reasons.length>1?el('small',{text:i.reasons.slice(1).join(' · ')}):null]);
+    var name=el('div',{},[el('span',{cls:'name',text:i.name}),i.ai?el('span',{cls:'pill ai',text:'AI · '+i.ai}):null]);
+    var sum=el('summary',{},[el('span',{cls:'pill '+i.verdict,text:i.verdict}),name,el('span',{cls:'muted c-cat',text:i.category}),el('span',{cls:'c-where',text:i.targets.join(', ')}),el('span',{cls:i.cost?'':'muted',text:cost(i)}),why]);
+    var kv=el('div',{cls:'kv'},[
+      el('span',{text:'Status: '+i.status}),
+      el('span',{text:'Files using it: '+i.codeFiles}),
+      el('span',{text:'Files to touch to remove: '+i.removalFiles}),
+      i.calls!=null?el('span',{text:'Runtime calls: '+i.calls.toLocaleString('en-US')}):null,
+      el('span',{text:'Owner: '+(i.owner||'—')}),
+      i.purpose?el('span',{text:'Purpose: '+i.purpose}):null,
+      i.introducedAt?el('span',{text:'Added: '+i.introducedAt.slice(0,10)}):null,
+      i.lastTouchedAt?el('span',{text:'Last touched: '+i.lastTouchedAt.slice(0,10)}):null]);
+    var tb=el('table',{},i.evidence.map(function(e){return el('tr',{},[el('td',{text:e.t}),el('td',{},[el('code',{text:e.f+(e.l?':'+e.l:'')})]),el('td',{text:(KIND[e.k]||e.k)+(e.dev?' (dev/test)':'')}),el('td',{},[el('code',{text:e.d})])])}));
+    list.appendChild(el('details',{cls:'item'},[sum,el('div',{cls:'detail'},[kv,tb])]));
+  });
+}
+document.querySelectorAll('.bar button').forEach(function(b){b.addEventListener('click',function(){filter=b.getAttribute('data-f');document.querySelectorAll('.bar button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b))});render()})});
+document.getElementById('q').addEventListener('input',function(e){q=e.target.value.trim().toLowerCase();render()});
+render();
+if(D.unknownHosts.length){
+  var u=document.getElementById('unknown');
+  u.appendChild(el('h2',{text:'Unknown external domains'}));
+  u.appendChild(el('p',{cls:'muted',text:'Referenced in code but not in the vendor catalog. Add the real integrations under vendors: in stackprune.yml.'}));
+  var t=el('table',{cls:'hosts'},[el('tr',{},[el('th',{text:'Domain'}),el('th',{text:'Files'}),el('th',{text:'Where'}),el('th',{cls:'h-hosts',text:'Hosts'})])]);
+  D.unknownHosts.slice(0,40).forEach(function(h){t.appendChild(el('tr',{},[el('td',{text:h.domain}),el('td',{text:String(h.files)+(h.calls?' · '+h.calls+' calls':'')}),el('td',{text:h.targets.join(', ')}),el('td',{cls:'h-hosts muted',text:h.hosts.slice(0,4).join(', ')})]))});
+  u.appendChild(t);
+}
+})();
+</script>
+</body>
+</html>

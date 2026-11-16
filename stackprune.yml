@@ -1,0 +1,8 @@
+# stackprune's own config. The catalog, tests and demo mention every vendor on purpose,
+# so they're excluded; what's left is the tool itself, which integrates with nothing.
+exclude:
+  - src/catalog
+  - test
+  - scripts
+  - examples
+  - docs

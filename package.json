@@ -1,0 +1,67 @@
+{
+  "name": "stackprune",
+  "version": "0.1.0",
+  "description": "Find the third-party integrations you pay for but don't use. Scans your repos, measures real usage, and tells you what to cut.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ylldrit Qallakaj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YlldritQ/stackprune.git"
+  },
+  "keywords": [
+    "integrations",
+    "saas",
+    "cost",
+    "finops",
+    "dependencies",
+    "audit",
+    "unused",
+    "dead-code",
+    "vendor",
+    "cli"
+  ],
+  "bin": {
+    "stackprune": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./register": "./dist/runtime/register.js",
+    "./probe": {
+      "types": "./dist/runtime/probe.d.ts",
+      "default": "./dist/runtime/probe.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "tsx src/cli.ts",
+    "prepublishOnly": "pnpm build && pnpm test",
+    "demo": "bash scripts/demo.sh"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

@@ -63,6 +63,28 @@ export interface Vendor {
   paid?: boolean;
   /** Homepage or pricing page. */
   url?: string;
+  /** Not in the catalog: inferred from a package + a credential env var, or from config/billing. */
+  detected?: 'sdk' | 'config' | 'billing';
+}
+
+/**
+ * A job that several libraries can do (dates, HTTP client, charts…). Using two families
+ * from the same group in one app is a duplicate.
+ */
+export interface PurposeGroup {
+  /** kebab-case id, e.g. "dates", "http-client". */
+  id: string;
+  /** Human label, e.g. "Date & time handling". */
+  label: string;
+  ecosystem: Ecosystem;
+  /**
+   * One entry per library. A family can span several packages that belong together
+   * (e.g. chart.js + react-chartjs-2 + chartjs-plugin-*), so they never count as duplicates of each other.
+   * A trailing `*` is a prefix match.
+   */
+  families: { name: string; packages: string[] }[];
+  /** Optional hint shown with the duplicate, e.g. "date-fns and dayjs are tree-shakeable; moment is in maintenance mode". */
+  note?: string;
 }
 
 /** Where a piece of evidence came from. */
@@ -73,6 +95,8 @@ export interface Evidence {
   detail: string; // package name, env var name, host, …
   ecosystem?: Ecosystem; // for manifest evidence
   dev?: boolean; // devDependency / test file
+  /** For imports: the file's header comment calls it a test/spike/PoC/experiment. */
+  marker?: string;
 }
 
 export interface GitInfo {
@@ -106,6 +130,8 @@ export type Status =
   | 'config-only' // env vars declared, nothing in code reads them, no imports
   | 'dormant' // in code, but runtime data shows zero calls
   | 'dev-only' // only in devDependencies / tests
+  | 'absent' // you pay for it (config or billing), but no repo references it
+  | 'tool' // paid, used by people rather than code (seats); not judged by code
   | 'active';
 
 export type Verdict = 'cut' | 'review' | 'keep';
@@ -135,6 +161,8 @@ export interface CostEntry {
   currency?: string;
   plan?: string;
   notes?: string;
+  /** Where the number came from. */
+  source?: 'config' | 'billing';
 }
 
 export interface IntegrationConfig {
@@ -143,6 +171,15 @@ export interface IntegrationConfig {
   cost?: CostEntry | number;
   /** Mark as intentionally kept, e.g. legally required. */
   keep?: boolean;
+  /** Display name for ids that aren't in the catalog. */
+  name?: string;
+  /**
+   * "api" (default): judged by what the code does.
+   * "tool": used by people (seats: Figma, Notion, Linear…); listed, never judged by code.
+   */
+  kind?: 'api' | 'tool';
+  /** Extra names it shows up under on invoices / bank statements, e.g. ["ACME GMBH"]. */
+  aliases?: string[];
 }
 
 export interface Config {
@@ -154,8 +191,10 @@ export interface Config {
   apps?: Record<string, string[]>;
   /** Extra or overriding vendor definitions (in-house APIs, niche vendors, partners). */
   vendors?: Vendor[];
-  /** Per-vendor metadata keyed by vendor id. */
+  /** Per-vendor metadata keyed by vendor id. Listing a cost here also means "we pay for this". */
   integrations?: Record<string, IntegrationConfig>;
+  /** Billing exports (CSV from your bank, card, accounting tool) to match against, relative to this file. */
+  billing?: string[];
   /** Glob-ish path fragments to skip, in addition to the defaults. */
   exclude?: string[];
   /** Vendor ids to ignore completely. */
@@ -170,6 +209,10 @@ export interface Config {
     /** Fail `stackprune check` when a newly added integration has no owner/purpose in config. */
     requireOwner?: boolean;
     requirePurpose?: boolean;
+    /** Fail when a PR adds a dependency nothing uses. */
+    blockUnusedPackages?: boolean;
+    /** Fail when a PR adds a second library for a job an existing one already does. */
+    blockDuplicates?: boolean;
   };
 }
 
@@ -193,4 +236,46 @@ export interface ScanResult {
   usageWindow?: { from: string; to: string };
   /** Non-fatal problems: unparseable manifests, truncated walks… */
   warnings: string[];
+  unusedPackages: UnusedPackage[];
+  duplicates: Duplicate[];
+  packageStats: { declared: number; unused: number; duplicateGroups: number };
+  /** Payments in the billing exports that matched no known vendor. */
+  unmatchedSpend: SpendItem[];
+  billingWindow?: { from: string; to: string };
+}
+
+/** A dependency nothing uses (statically, or at runtime in production). */
+export interface UnusedPackage {
+  ecosystem: Ecosystem;
+  name: string;
+  dev: boolean;
+  /** "low" for tool plugins, native modules and dev tooling: check before removing. */
+  confidence: 'high' | 'low';
+  where: { target: string; group?: string; manifest: string; line?: number }[];
+  reason: string;
+  /** Flagged from production data (imported in code, never loaded at runtime). */
+  runtime?: boolean;
+  introducedAt?: string;
+  introducedBy?: string;
+  introducedWithAI?: string;
+}
+
+/** Two or more libraries doing the same job in one app. */
+export interface Duplicate {
+  group: string;
+  label: string;
+  app: string;
+  note?: string;
+  /** Most-used first. */
+  families: { name: string; packages: string[]; files: number; targets: string[]; introducedWithAI?: string; introducedAt?: string }[];
+}
+
+/** A payee from billing exports, aggregated. */
+export interface SpendItem {
+  payee: string;
+  monthly: number;
+  total: number;
+  payments: number;
+  currency: string;
+  vendorId?: string;
 }

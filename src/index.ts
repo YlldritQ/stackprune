@@ -4,7 +4,12 @@ import { buildCatalog, type Catalog } from './catalog/index.js';
 import { findConfig, loadConfig } from './config.js';
 import { isNoiseHost, registrableDomain } from './hosts.js';
 import { loadUsage, type UsageData } from './runtime/usage.js';
+import { analyzePackages } from './analyze/packages.js';
+import { loadBilling, matchBilling } from './billing.js';
+import { PURPOSES } from './catalog/purposes.js';
+import { detectUnlistedVendors } from './scan/detect.js';
 import { gitInfoFor, isGitRepo } from './scan/git.js';
+import { checkPackages } from './scan/packages.js';
 import { scanTarget, type Target, type TargetScan } from './scan/index.js';
 import { resolveTargets } from './scan/targets.js';
 import type { Config, ScanResult, UnknownHost } from './types.js';
@@ -19,12 +24,14 @@ export interface ScanOptions {
   usage?: string[];
   /** Collect git history signals (introduced when/by whom/with which AI, last touched). Default true. */
   git?: boolean;
+  /** Billing CSV exports (bank, card, accounting tool) to match against. */
+  billing?: string[];
   /** Pre-resolved targets (skips path expansion). */
   targets?: Target[];
   now?: Date;
 }
 
-async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<unknown>): Promise<void> {
   let i = 0;
   await Promise.all(
     Array.from({ length: Math.min(size, items.length) }, async () => {
@@ -36,39 +43,83 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
 export async function scan(opts: ScanOptions = {}): Promise<ScanResult & { catalog: Catalog; scans: TargetScan[] }> {
   const explicitPaths = !!opts.paths?.length;
   const paths = explicitPaths ? opts.paths! : ['.'];
-  const configPath = opts.configPath ?? (opts.config ? undefined : findConfig(['.', ...paths]));
+  // The config next to the code being scanned wins over one in the current folder.
+  const configPath = opts.configPath ?? (opts.config ? undefined : findConfig(explicitPaths ? [...paths, '.'] : ['.']));
   const config = opts.config ?? loadConfig(configPath);
-  const catalog = buildCatalog(config.vendors, config.ignore);
-  const targets =
-    opts.targets ?? (!explicitPaths && config.apps ? appTargets(config.apps, configPath ? dirname(resolve(configPath)) : process.cwd()) : resolveTargets(paths));
+  const baseDir = configPath ? dirname(resolve(configPath)) : process.cwd();
+  const currency = config.currency ?? 'USD';
+  let catalog = buildCatalog(config.vendors, config.ignore);
+  const targets = opts.targets ?? (!explicitPaths && config.apps ? appTargets(config.apps, baseDir) : resolveTargets(paths));
 
-  const scans = targets.map((t) => scanTarget(t, catalog, { exclude: config.exclude }));
+  let scans = targets.map((t) => scanTarget(t, catalog, { exclude: config.exclude }));
+  // Second pass when vendor SDKs the catalog doesn't know were found (a package + its credentials).
+  const detected = detectUnlistedVendors(scans, catalog).filter((v) => !config.ignore?.includes(v.id));
+  if (detected.length) {
+    catalog = buildCatalog([...(config.vendors ?? []), ...detected], config.ignore);
+    scans = targets.map((t) => scanTarget(t, catalog, { exclude: config.exclude }));
+  }
+
+  // Package hygiene: every declared dependency, used or not.
+  const uses = new Map(scans.map((s) => [s.target.name, checkPackages(s)]));
+
+  const usage: UsageData | undefined = opts.usage?.length ? loadUsage(opts.usage, catalog) : undefined;
+  const billingPaths = [...(opts.billing ?? []), ...(config.billing ?? []).map((p) => resolve(baseDir, p))];
+  const billing = billingPaths.length ? loadBilling(billingPaths, currency) : undefined;
+  const matched = billing ? matchBilling(billing, catalog, config) : undefined;
+
+  const pkg = analyzePackages({ scans, uses, catalog, purposes: PURPOSES, usage });
+
+  // Git history: who added what, and whether an AI assistant was credited.
   const gitFlags = new Map<string, boolean>();
-
   if (opts.git !== false) {
-    const jobs: { scan: TargetScan; id: string }[] = [];
+    const scanByName = new Map(scans.map((s) => [s.target.name, s]));
+    const jobs: (() => Promise<void>)[] = [];
     for (const s of scans) {
       const isGit = await isGitRepo(s.target.root);
       gitFlags.set(s.target.root, isGit);
-      if (isGit) for (const id of s.hits.keys()) jobs.push({ scan: s, id });
+      if (!isGit) continue;
+      for (const hit of s.hits.values()) jobs.push(async () => void (hit.git = await gitInfoFor(s.target.root, hit.evidence)));
     }
-    await pool(jobs, 8, async ({ scan: s, id }) => {
-      const hit = s.hits.get(id)!;
-      hit.git = await gitInfoFor(s.target.root, hit.evidence);
-    });
+    for (const u of pkg.unused) {
+      const w = u.where[0];
+      const s = w && scanByName.get(w.target);
+      if (s && gitFlags.get(s.target.root)) {
+        jobs.push(async () => {
+          const g = await gitInfoFor(s.target.root, [{ kind: 'manifest', file: w.manifest, detail: u.name, ecosystem: u.ecosystem }]);
+          Object.assign(u, { introducedAt: g.introducedAt, introducedBy: g.introducedBy, introducedWithAI: g.introducedWithAI });
+        });
+      }
+    }
+    for (const d of pkg.duplicates) {
+      for (const fam of d.families) {
+        const t = fam.targets[0];
+        const s = t ? scanByName.get(t) : undefined;
+        const declared = s?.facts.declared.find((x) => fam.packages.includes(x.name));
+        if (s && declared && gitFlags.get(s.target.root)) {
+          jobs.push(async () => {
+            const g = await gitInfoFor(s.target.root, [{ kind: 'manifest', file: declared.file, detail: declared.name, ecosystem: declared.ecosystem }]);
+            Object.assign(fam, { introducedAt: g.introducedAt, introducedWithAI: g.introducedWithAI });
+          });
+        }
+      }
+    }
+    await pool(jobs, 8, (job) => job());
   }
-
-  const usage: UsageData | undefined = opts.usage?.length ? loadUsage(opts.usage, catalog) : undefined;
-  const integrations = analyze({ scans, catalog, config, usage, now: opts.now });
+  const integrations = analyze({ scans, catalog, config, usage, spend: matched?.byVendor, currency, now: opts.now });
 
   return {
     generatedAt: (opts.now ?? new Date()).toISOString(),
     targets: scans.map((s) => ({ name: s.target.name, group: s.target.group, root: s.target.root, files: s.files, git: gitFlags.get(s.target.root) ?? false })),
     integrations,
     unknownHosts: collectUnknownHosts(scans, usage, config.ignoreHosts).filter((h) => !catalog.ownsDomain(h.domain)),
-    currency: config.currency ?? 'USD',
+    currency,
     usageWindow: usage?.window,
-    warnings: scans.flatMap((s) => s.warnings),
+    warnings: [...scans.flatMap((s) => s.warnings), ...(billing?.warnings ?? [])],
+    unusedPackages: pkg.unused,
+    duplicates: pkg.duplicates,
+    packageStats: { declared: pkg.declared, unused: pkg.unused.length, duplicateGroups: pkg.duplicates.length },
+    unmatchedSpend: matched?.unmatched ?? [],
+    billingWindow: billing?.window,
     catalog,
     scans,
   };
@@ -124,6 +175,8 @@ export { analyze } from './analyze/verdict.js';
 export { buildCatalog, Catalog, VENDORS } from './catalog/index.js';
 export { findConfig, loadConfig } from './config.js';
 export { loadUsage } from './runtime/usage.js';
+export { loadBilling, matchBilling } from './billing.js';
+export { PURPOSES } from './catalog/purposes.js';
 export { resolveTargets } from './scan/targets.js';
 export { scanTarget } from './scan/index.js';
 export type * from './types.js';

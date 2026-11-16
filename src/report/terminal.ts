@@ -12,8 +12,8 @@ const cyan = c('36');
 const magenta = c('35');
 
 const SECTION: Record<Verdict, { title: string; hint: string; color: (s: string) => string; mark: string }> = {
-  cut: { title: 'CUT', hint: 'not used, safe to remove', color: red, mark: '✂' },
-  review: { title: 'REVIEW', hint: 'used, but something looks off', color: yellow, mark: '?' },
+  cut: { title: 'CUT', hint: 'integrations nothing uses', color: red, mark: '✂' },
+  review: { title: 'REVIEW', hint: 'integrations where something looks off', color: yellow, mark: '?' },
   keep: { title: 'KEEP', hint: 'in use', color: green, mark: '✓' },
 };
 
@@ -45,24 +45,76 @@ export function renderTerminal(r: ScanResult, opts: { all?: boolean; width?: num
   const s = summarize(r);
   const out: string[] = [];
   const repoCount = r.targets.length;
+  const highUnused = r.unusedPackages.filter((u) => u.confidence === 'high');
+  const lowUnused = r.unusedPackages.filter((u) => u.confidence === 'low');
+  const aiPkgs = r.unusedPackages.filter((u) => u.introducedWithAI).length;
 
   out.push('');
-  out.push(`${bold('stackprune')} ${dim('·')} ${repoCount} ${repoCount === 1 ? 'repo' : 'repos'} ${dim('·')} ${s.total} integrations${r.usageWindow ? dim(` · runtime data ${r.usageWindow.from.slice(0, 10)} → ${r.usageWindow.to.slice(0, 10)}`) : ''}`);
+  out.push(
+    `${bold('stackprune')} ${dim('·')} ${repoCount} ${repoCount === 1 ? 'repo' : 'repos'} ${dim('·')} ${s.total} integrations ${dim('·')} ${r.packageStats.declared} dependencies` +
+      (r.usageWindow ? dim(` · runtime data ${r.usageWindow.from.slice(0, 10)} → ${r.usageWindow.to.slice(0, 10)}`) : ''),
+  );
   const counts = `${red(`${s.byVerdict.cut} cut`)}   ${yellow(`${s.byVerdict.review} review`)}   ${green(`${s.byVerdict.keep} keep`)}`;
   const savings = s.savingsCut || s.savingsReview ? `   ${dim('│')}   potential savings ${bold(money(s.savingsCut, r.currency))}/mo${s.savingsReview ? dim(` (+${money(s.savingsReview, r.currency)}/mo under review)`) : ''}` : '';
-  out.push(`  ${counts}${savings}`);
-  if (s.aiIntroduced) out.push(`  ${magenta(`${s.aiIntroduced} added in AI-assisted commits`)}${s.aiIntroducedUnused ? magenta(` — ${s.aiIntroducedUnused} of them unused`) : ''}`);
+  out.push(`  integrations  ${counts}${savings}`);
+  out.push(`  packages      ${red(`${highUnused.length} unused`)}${lowUnused.length ? dim(` (+${lowUnused.length} to double-check)`) : ''}   ${yellow(`${r.duplicates.length} duplicate${r.duplicates.length === 1 ? '' : 's'}`)}`);
+  const ai = s.aiIntroduced + aiPkgs;
+  if (ai) out.push(`  ${magenta(`${ai} added in AI-assisted commits`)}${s.aiIntroducedUnused + aiPkgs ? magenta(` — ${s.aiIntroducedUnused + aiPkgs} of them unused`) : ''}`);
 
-  for (const verdict of ['cut', 'review', 'keep'] as Verdict[]) {
+  for (const verdict of ['cut', 'review'] as Verdict[]) {
     const items = r.integrations.filter((i) => i.verdict === verdict);
     if (!items.length) continue;
     const sec = SECTION[verdict];
     out.push('');
     out.push(`${sec.color(bold(`${sec.mark} ${sec.title}`))} ${dim(`— ${sec.hint}`)}`);
-    for (const i of items) {
-      const lines = row(i, r.currency, width);
-      out.push(...(verdict === 'keep' && !opts.all ? lines.slice(0, 1) : lines));
+    for (const i of items) out.push(...row(i, r.currency, width));
+  }
+
+  if (r.unusedPackages.length) {
+    const shown = opts.all ? r.unusedPackages : highUnused;
+    out.push('');
+    out.push(`${red(bold('▢ UNUSED PACKAGES'))} ${dim('— declared, but nothing imports, runs or configures them')}`);
+    for (const u of shown) {
+      const where = u.where.map((w) => `${w.target}${w.manifest !== 'package.json' && w.manifest !== 'requirements.txt' && w.manifest !== 'go.mod' ? `/${w.manifest}` : ''}`);
+      const tags = [u.dev ? 'dev' : '', u.confidence === 'low' ? 'check' : '', u.runtime ? 'prod data' : ''].filter(Boolean).join(', ');
+      const added = u.introducedAt ? `added ${u.introducedAt.slice(0, 10)}${u.introducedBy ? ` by ${u.introducedBy}` : ''}` : '';
+      const ai = u.introducedWithAI ? magenta(` · AI: ${u.introducedWithAI}`) : '';
+      out.push(`  ${pad(bold(u.name), 34)} ${pad(where.join(', '), 34)} ${pad(dim(tags), 16)} ${dim(added)}${ai}${u.runtime ? `\n${' '.repeat(88)}${dim('↳ ' + u.reason)}` : ''}`);
     }
+    if (!opts.all && lowUnused.length) out.push(dim(`  + ${lowUnused.length} more to double-check (dev tooling, plugins, native modules): use --all`));
+  }
+
+  if (r.duplicates.length) {
+    out.push('');
+    out.push(`${yellow(bold('⇄ DUPLICATES'))} ${dim('— different libraries doing the same job in one app')}`);
+    for (const d of r.duplicates) {
+      out.push(`  ${bold(d.label)} ${dim(`in ${d.app}`)}`);
+      const [keep, ...rest] = d.families;
+      for (const f of d.families) {
+        const files = `${f.files} file${f.files === 1 ? '' : 's'}`;
+        const ai = f.introducedWithAI ? magenta(` · AI: ${f.introducedWithAI}${f.introducedAt ? ` ${f.introducedAt.slice(0, 10)}` : ''}`) : '';
+        out.push(`    ${f === keep ? green('●') : dim('○')} ${pad(f.name, 22)} ${pad(files, 10)} ${dim(f.packages.join(', '))}${ai}`);
+      }
+      const move = rest.reduce((n, f) => n + f.files, 0);
+      out.push(dim(`    → pick one. Moving everything onto ${keep!.name} (most used) touches ${move} file${move === 1 ? '' : 's'}${d.note ? `. ${d.note}` : ''}`));
+    }
+  }
+
+  const keep = r.integrations.filter((i) => i.verdict === 'keep');
+  if (keep.length) {
+    out.push('');
+    out.push(`${green(bold('✓ KEEP'))} ${dim('— integrations in use')}`);
+    if (opts.all) for (const i of keep) out.push(...row(i, r.currency, width));
+    else out.push(`  ${keep.map((i) => i.vendor.name).join(dim(' · '))}`);
+  }
+
+  if (r.unmatchedSpend.length) {
+    const top = r.unmatchedSpend.slice(0, opts.all ? 100 : 12);
+    out.push('');
+    out.push(`${cyan(bold('€ PAID, NOT RECOGNISED'))} ${dim('— payments in your billing export that match no known integration')}`);
+    for (const p of top) out.push(`  ${pad(bold(p.payee), 34)} ${pad(`${money(p.monthly, p.currency)}/mo`, 14)} ${dim(`${p.payments} payment${p.payments === 1 ? '' : 's'}`)}`);
+    if (r.unmatchedSpend.length > top.length) out.push(dim(`  … ${r.unmatchedSpend.length - top.length} more (use --all)`));
+    out.push(dim('  Map them in stackprune.yml: `integrations: { <id>: { aliases: ["PAYEE NAME"] } }`, or `kind: tool` for things people use directly.'));
   }
 
   if (r.unknownHosts.length) {
@@ -85,8 +137,8 @@ export function renderTerminal(r: ScanResult, opts: { all?: boolean; width?: num
   }
 
   const tips: string[] = [];
-  if (s.unpricedPaid) tips.push(`${s.unpricedPaid} paid integration${s.unpricedPaid === 1 ? ' has' : 's have'} no cost yet — add costs under \`integrations:\` in stackprune.yml to see savings (\`stackprune init\` writes a starter file).`);
-  if (!r.usageWindow) tips.push('Static scan only. Add the runtime probe (`node --import stackprune/register`) and pass `--usage .stackprune` to catch integrations that are in code but never called.');
+  if (s.unpricedPaid) tips.push(`${s.unpricedPaid} paid integration${s.unpricedPaid === 1 ? ' has' : 's have'} no cost yet — add costs under \`integrations:\` in stackprune.yml, or pass a billing export with \`--billing payments.csv\`.`);
+  if (!r.usageWindow) tips.push('Static scan only. Run the production probe (`node --import stackprune/register`) and pass `--usage .stackprune` to find code that is imported but never runs.');
   if (tips.length) {
     out.push('');
     for (const t of tips) out.push(dim(`• ${t}`));

@@ -1,142 +1,90 @@
 # stackprune
 
-**Find the integrations you pay for but don't use.**
-
-stackprune scans your repos for third-party services (Stripe, Sentry, Twilio, OpenAI, Segment, and 200+ more), shows how much each one is actually wired in, and tells you what to cut, what to look at, and what to keep.
+**Keep your dependencies clean. Find unused packages, duplicate libraries and paid integrations nobody uses, in your repo, on every pull request, and in production.**
 
 ```bash
-npx stackprune ~/code/acme
+npx stackprune
 ```
 
-![stackprune HTML report](docs/report.png)
+![stackprune report](docs/report.png)
 
 ## Why
 
-Adding an integration is one `npm install` away, and with AI assistants it's one prompt away. Removing one never happens. Six months later you have:
+AI coding assistants install whatever fixes the problem in front of them. The bug gets fixed, and the package stays. A few months later you have:
 
-- an SDK that was installed for a spike and never imported,
-- API keys in `.env.example` for a vendor nobody calls,
-- two error trackers, two analytics tools and three email providers doing the same job,
-- and a monthly bill for all of them.
+- `moment` next to `dayjs` next to `date-fns`, three icon sets, `uuid` and `nanoid`;
+- `lodash` that one prompt needed and no file imports any more;
+- a telemetry SDK "for a quick test" that never got a production key, and is still billed;
+- API keys in `.env` for services nobody calls;
+- two error trackers, two analytics tools, three email providers.
 
-Your dependency tool sees packages. Your finance tool sees invoices. Nothing connects the two. stackprune reads the code, the env files and the git history, and optionally real runtime traffic, so you can answer "do we still need this?" with evidence.
+Dependency tools see packages. Finance sees invoices. Nobody connects them. stackprune reads the code, the manifests, the env files, the git history (including which AI assistant was credited) and, optionally, production traffic and your billing export. Then it tells you what to remove.
 
-## What you get
+## What it finds
+
+| | Example |
+|---|---|
+| **Unused packages** | `lodash` is in `package.json`, but nothing imports, runs or configures it |
+| **Duplicate libraries** | Day.js in 41 files, Moment in 3, date-fns in 1: pick one, and moving the rest touches 4 files |
+| **Unused integrations** | Twilio is installed and never imported, or `MIXPANEL_TOKEN` is set and nothing reads it |
+| **Switched-off integrations** | the SDK is wired up, but the key it needs isn't set anywhere |
+| **Experiments that shipped** | the file that wires it up calls itself a "quick test" or "spike" |
+| **Overlapping services** | Sentry *and* Bugsnag in the same app |
+| **Unlisted vendor SDKs** | `@acme/browser` + `ACME_PUBLISHABLE_KEY` gets treated as a vendor even when it's not in the catalog |
+| **Spend with no code behind it** | your card statement says you pay for it, and no repo mentions it |
+| **Code that never runs in production** | it's imported, but the production probe never saw it load |
+| **Who added it** | when, by whom, and whether the commit credits Claude, Copilot, Cursor, Codex, Aider, Devin, Gemini… |
+
+## Sample output
 
 ```
-stackprune · 3 repos · 15 integrations
-  6 cut   4 review   5 keep   │   potential savings $428/mo (+$168/mo under review)
-  6 added in AI-assisted commits — 5 of them unused
+stackprune · 3 repos · 16 integrations · 27 dependencies
+  integrations  6 cut   4 review   6 keep   │   potential savings $428/mo (+$267/mo under review)
+  packages      1 unused   3 duplicates
+  8 added in AI-assisted commits — 6 of them unused
 
-✂ CUT — not used, safe to remove
-  LaunchDarkly      feature-flags   api       $150/mo   Installed (@launchdarkly/node-server-sdk) in api but never imported
-                                                        ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
-  Segment (Twilio)  analytics       web       $120/mo   Installed (@segment/analytics-next) in web but never imported
-  Algolia           search          web       $85/mo    Installed (algoliasearch) in web but never imported
-  Mixpanel          analytics       api       $28/mo    Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
-                                                        ↳ Added in an AI-assisted commit (Cursor) on 2026-05-02
-  Twilio            sms             api       $25/mo    Installed (twilio) in api but never imported
-  SendGrid          email           worker    $20/mo    Installed (sendgrid) in worker but never imported
+✂ CUT — integrations nothing uses
+  LaunchDarkly      feature-flags   api   $150/mo   Installed (@launchdarkly/node-server-sdk) in api but never imported
+                                                    ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
+  Segment (Twilio)  analytics       web   $120/mo   Installed (@segment/analytics-next) in web but never imported
+  Mixpanel          analytics       api   $28/mo    Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
 
-? REVIEW — used, but something looks off
-  Sentry            error-tracking  api, web  $89/mo    Used in 3 files across api, web, worker
-                                                        ↳ Overlaps with Bugsnag in acme (error-tracking)
-  Bugsnag           error-tracking  api       $59/mo    Used in 1 file across api
-  Vercel Analytics  analytics       web       $20/mo    Used in 1 file across web
-                                                        ↳ Overlaps with PostHog in acme (analytics)
+? REVIEW — integrations where something looks off
+  Telemetrix        other           web   $99/mo    Used in 1 file across web
+                                                    ↳ Needs NEXT_PUBLIC_TELEMETRIX_PUBLISHABLE_KEY, which no env file in the repo sets
+                                                    ↳ app/telemetry.ts describes itself as "Telemetrix browser SDK (quick test, remove before release)."
+                                                    ↳ Not in the catalog: detected as a vendor SDK (@telemetrix/browser)
+  Sentry            error-tracking  api   $89/mo    Overlaps with Bugsnag in acme (error-tracking)
 
-✓ KEEP — in use
-  OpenAI            ai              api, worker  $640/mo  Used in 2 files across api, worker
-  Stripe            payments        api, web     $420/mo  Used in 2 files across api, web
-  ...
+▢ UNUSED PACKAGES — declared, but nothing imports, runs or configures them
+  lodash            web             added 2026-07-21 by Sam · AI: Claude
+
+⇄ DUPLICATES — different libraries doing the same job in one app
+  Date & time handling in acme
+    ● Day.js        2 files   dayjs
+    ○ Moment        1 file    moment · AI: Claude 2026-07-21
+    → pick one. Moving everything onto Day.js (most used) touches 1 file.
+  Icon library in acme
+    ● Lucide        2 files   lucide-react
+    ○ react-icons   1 file    react-icons · AI: Claude 2026-07-21
 ```
 
-That output comes from a made-up company: run `pnpm build && pnpm demo` to reproduce it. Reports come as a terminal table, Markdown, JSON or a self-contained HTML page ([example](examples/demo-report.html)).
+That's a made-up company: `pnpm build && pnpm demo` reproduces it. Reports come as a terminal table, Markdown, JSON or a self-contained HTML page ([example](examples/demo-report.html)).
 
-## How it decides
+## Three ways to run it
 
-For every vendor it finds, stackprune collects evidence from each repo:
-
-| Evidence | Where it looks |
-|---|---|
-| **Dependency** | `package.json`, `requirements*.txt`, `pyproject.toml`, `Pipfile`, `go.mod`, `Gemfile`, `composer.json`, `Cargo.toml`, `*.csproj` |
-| **Import** | `import`/`require`/dynamic imports (JS/TS), `import`/`from` (Python), Go imports, Ruby `require`, Rust `use`, `boto3.client("s3")`, `new AWS.S3()`, packages wired up from scripts (`node -r dd-trace/init`) or config files (Expo/Next plugins) |
-| **Env var** | `.env*` files, `docker-compose`, CI YAML (declared) vs. source code (read); only names are read, never values |
-| **API host** | URLs and hostnames in code and config (`api.stripe.com`, `*.ingest.sentry.io`, `sqs.*.amazonaws.com`) |
-| **Git** | When it was introduced, by whom, whether that commit credits an AI assistant (Claude, Copilot, Cursor, Codex, Aider, Devin, Gemini…), and when the code using it was last touched |
-| **Runtime** *(optional)* | Real outbound calls per vendor, from the [runtime probe](#runtime-usage) or your own logs |
-
-Then it gives each integration a verdict:
-
-| Verdict | When |
-|---|---|
-| **cut** | Installed but never imported · or credentials configured that nothing in code reads |
-| **review** | Overlaps with another vendor doing the same job in the same app · only read as env vars (could be a framework, could be dead config) · in code but **zero calls** in your runtime data |
-| **keep** | Imported or called, no overlap, or marked `keep: true` in config |
-
-It also flags leftovers ("Stripe is used in `api`, but still installed and unused in `admin`"), consolidation candidates across apps, and **unknown external domains**: URLs in your code that match no known vendor. Those are usually partner APIs and niche services you'll want to track too.
-
-## Quick start
+### 1. In your project
 
 ```bash
-# one repo
-npx stackprune .
-
-# a folder full of repos: each repo becomes a target, grouped as one app
-npx stackprune ~/code/acme
-
-# several apps at once
-npx stackprune ~/code/shop ~/code/backoffice ~/code/mobile
-
-# shareable report
-npx stackprune ~/code/acme --out stackprune-report.html
+npx stackprune                      # the current repo
+npx stackprune ~/code/acme          # a folder of repos: one app, judged together
+npx stackprune --out report.html    # shareable report
+npx stackprune init                 # write a stackprune.yml from what it found
 ```
 
-Then write a config with what it found and fill in costs and owners:
+### 2. On every pull request
 
-```bash
-npx stackprune init ~/code/acme   # writes stackprune.yml
-```
-
-## Configuration
-
-`stackprune.yml` (or `.stackprune.yml` / `stackprune.json`) in the current folder or the first scanned path:
-
-```yaml
-currency: EUR
-
-# Optional: name your apps and list their repos (relative to this file). Running
-# `stackprune` with no paths then audits all of them; overlaps are judged per app.
-apps:
-  shop: [../shop-api, ../shop-web, ../shop-mobile]
-  backoffice: [../admin]
-
-integrations:
-  stripe:   { owner: payments, purpose: Checkout and subscriptions, cost: 420 }
-  sentry:   { owner: platform, cost: { monthly: 89, plan: Team } }
-  twilio:   { cost: 25 }
-  segment:  { keep: true, purpose: Contractually required export }   # never suggest cutting
-
-# Integrations the catalog doesn't know: partner APIs, in-house services, niche vendors.
-vendors:
-  - id: parcelpartner
-    name: ParcelPartner
-    category: other
-    hosts: ["*.parcelpartner.io"]
-    env: ["PARCELPARTNER_*"]
-
-ignore: [vercel]                         # vendor ids to leave out entirely
-ignoreHosts: [acme.com, "*.acme.dev"]    # your own domains, hidden from "unknown domains"
-exclude: [legacy/, scripts/fixtures]     # paths to skip (node_modules, dist, build… are skipped already)
-
-check:
-  requireOwner: true     # fail CI when a PR adds an integration nobody owns
-  requirePurpose: false
-```
-
-## In CI: catch new integrations at the pull request
-
-`stackprune check` compares a branch with its base and lists what the PR adds or removes. Nothing in the old code is flagged, and you get a nudge when a PR quietly adds a fourth email provider.
+`stackprune check` compares a branch with its base and comments when the PR adds a package nothing uses, a second library for a job you already have a library for, or a new paid service nobody owns. Old code isn't flagged, only what this PR adds.
 
 ```yaml
 # .github/workflows/stackprune.yml
@@ -154,109 +102,177 @@ jobs:
       - uses: YlldritQ/stackprune@main
 ```
 
-The action posts one PR comment and keeps it updated, writes the report to the job summary, and fails the job when `check.requireOwner` / `check.requirePurpose` are set and a new integration isn't claimed in `stackprune.yml`.
-
-For a recurring audit, run a scan on a schedule and keep the HTML as an artifact:
-
 ```yaml
-on:
-  schedule: [{ cron: "0 7 * * 1" }]   # Mondays
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - id: sp
-        uses: YlldritQ/stackprune@main
-        with: { command: scan }
-      - uses: actions/upload-artifact@v4
-        with: { name: stackprune-report, path: "${{ steps.sp.outputs.html }}" }
+# stackprune.yml: make it block instead of just comment
+check:
+  blockDuplicates: true       # "moment duplicates Day.js (Date & time handling)"
+  blockUnusedPackages: true   # "left-pad is added but never used"
+  requireOwner: true          # every new paid integration needs an owner
 ```
 
-Locally, the same check works with `npx stackprune check --base origin/main`. It compares committed trees, so your local `.env` doesn't show up as "added".
+Locally: `npx stackprune check --base origin/main`.
 
-## Runtime usage
+### 3. In production
 
-Static analysis tells you an SDK is *wired in*. It can't tell you the code path still runs. For that, add the probe to a Node service:
+Static analysis tells you something is *imported*. It can't tell you the code path still runs. Add the probe to a Node service:
 
 ```bash
-npm i stackprune
 node --import stackprune/register server.js
 # or: NODE_OPTIONS="--import stackprune/register" npm start
 ```
 
-It subscribes to Node's built-in `diagnostics_channel` events for `fetch`/undici and `http`/`https`, which covers axios, got, node-fetch and most vendor SDKs. There's no monkey-patching. Every minute it appends one line per vendor to `.stackprune/usage-<app>-<host>.jsonl`. It records **hostname, call count, error count and latency only**: no paths, query strings, headers or bodies. Localhost and private-network calls are ignored.
+Each minute it appends a line to `.stackprune/usage-<app>-<host>.jsonl`. It records:
+
+- **which packages the process actually loaded**, as package names only;
+- **which external APIs it called**: hostname, call count, errors and latency. No paths, query strings, headers or bodies.
+
+It uses Node's built-in `module.registerHooks` and `diagnostics_channel` (fetch/undici, http/https, so axios, got and most SDKs are covered) and patches nothing. Localhost and private-network calls are ignored.
+
+After a few weeks of traffic, feed it back:
+
+```bash
+npx stackprune --usage ./usage-from-prod/
+```
+
+Packages that are imported but never loaded become "never loaded in production (21 days of data)". Integrations in code with zero calls become `review · dormant`.
 
 | Env var | Default | |
 |---|---|---|
-| `STACKPRUNE_APP` | npm package name | Use the repo name so usage lines up with the scan |
-| `STACKPRUNE_OUT` | `.stackprune` | Folder for JSONL files (`""` disables) |
-| `STACKPRUNE_ENDPOINT` | – | Also POST each batch here (for containers with no persistent disk) |
+| `STACKPRUNE_APP` | npm package name | Use the repo name so production data lines up with the scan |
+| `STACKPRUNE_OUT` | `.stackprune` | Folder for the JSONL files (`""` disables) |
+| `STACKPRUNE_ENDPOINT` | – | Also POST each batch here (for containers without a persistent disk) |
 | `STACKPRUNE_FLUSH_MS` | `60000` | Flush interval |
 | `STACKPRUNE_DISABLED` | – | `1` turns it off |
 
-Feed the files back in:
-
-```bash
-npx stackprune ~/code/acme --usage ./usage-from-prod/
-```
-
-Integrations that are in code but got **zero calls** during the window become `review · dormant`, and hosts nobody cataloged show up with call counts.
-
-**Not on Node?** The format is plain JSONL, so you can produce it from egress-proxy logs, an API gateway, or an OpenTelemetry exporter:
+Not on Node? The format is plain JSONL, so you can generate it from egress-proxy logs, an API gateway or an OpenTelemetry exporter:
 
 ```json
 {"ts":"2026-05-31T00:00:00Z","from":"2026-05-01T00:00:00Z","app":"worker","host":"api.openai.com","calls":18234,"errors":12}
+{"kind":"packages","ts":"2026-05-31T00:00:00Z","app":"worker","packages":["fastify","pino","openai"]}
 ```
 
-`vendor` (a catalog id) is optional: it's derived from `host`.
+## Follow the money: billing exports
+
+Some paid services barely touch the code, or don't touch it at all. Give stackprune your card or bank statement, or an accounting export:
+
+```bash
+npx stackprune --billing payments.csv
+```
+
+It reads the CSV most banks and tools export: comma, semicolon or tab separated, English or German number formats, card descriptors like `PADDLE.NET* ACME`. It averages the spend per payee per month and matches payees to vendors. The output:
+
+- **Paid, no trace in code:** "Billed $99/mo (ACME) but no repo references it."
+- **Paid, recognised:** costs fill in automatically, so savings are real numbers.
+- **Paid, not recognised:** payees it can't place get their own list. Map them with `aliases:`, or mark them `kind: tool` when people use them directly (Figma, Notion seats).
+
+## Configuration
+
+`stackprune.yml` next to the code you scan (or `.stackprune.yml` / `stackprune.json`, or `--config`):
+
+```yaml
+currency: EUR
+
+# Name your apps and list their repos (relative to this file). Running `stackprune`
+# with no paths audits all of them; duplicates and overlaps are judged per app.
+apps:
+  shop: [../shop-api, ../shop-web, ../shop-mobile]
+  backoffice: [../admin]
+
+billing: [exports/card-2026.csv]
+
+integrations:
+  stripe:   { owner: payments, purpose: Checkout and subscriptions, cost: 420 }
+  sentry:   { owner: platform, cost: { monthly: 89, plan: Team } }
+  acme:     { name: Acme Telemetry, aliases: ["ACME GMBH"], cost: 99 }   # paid; flagged if no code uses it
+  figma:    { kind: tool, aliases: ["FIGMA"] }                           # used by people, not code
+  segment:  { keep: true, purpose: Contractually required export }       # never suggest cutting
+
+# Partner APIs, in-house services, niche vendors.
+vendors:
+  - id: parcelpartner
+    name: ParcelPartner
+    category: other
+    hosts: ["*.parcelpartner.io"]
+    env: ["PARCELPARTNER_*"]
+
+ignore: [vercel]                         # vendor ids to leave out
+ignoreHosts: [acme.com, "*.acme.dev"]    # your own domains
+exclude: [legacy/, scripts/fixtures]     # paths to skip (node_modules, dist, build… are skipped already)
+
+check:
+  blockDuplicates: true
+  blockUnusedPackages: true
+  requireOwner: true
+```
+
+## How it decides
+
+**Is a package used?** It counts as used if any of these hold:
+- something under its manifest's folder imports it (JS/TS, CSS `@import`, Python, Go);
+- a script runs it: `package.json` scripts, Dockerfiles, Procfiles, CI workflows, including CLI names read from `node_modules` (`typescript` → `tsc`);
+- a config file names it (`.eslintrc` `plugins: ["react"]`, Babel/PostCSS/Vite/Next configs, `app.json` plugins);
+- it's a type package for something you use, or a peer dependency of something you use;
+- a framework convention needs it: `.tsx` files need `react`, `.scss` files need `sass`, a `tsconfig.json` needs `typescript`.
+
+Lockfiles are ignored, since they mention everything. Dev tooling, tool plugins and React Native native modules are reported as *check first*, because those are used in ways a scan can miss.
+
+**Is it a duplicate?** A catalog of 69 "jobs" (dates, HTTP clients, icons, charts, validation, state, forms, ORMs, loggers, test runners… for npm, PyPI and Go) groups libraries by what they do. A library and its companions (`chart.js` + `react-chartjs-2`) are one family and never count as duplicates of each other. Two families in one app is a duplicate. The most-used one is listed first, along with how many files you'd touch to consolidate.
+
+**What about integrations?** 220+ services are recognised by package, env var and API host. Each one gets a verdict:
+
+| Verdict | When |
+|---|---|
+| **cut** | Installed but never imported · credentials configured that nothing reads · you pay for it and no repo references it |
+| **review** | Overlaps with a paid service doing the same job in the same app · the key it needs isn't set anywhere · the file calls itself a test or spike · only read as env vars · zero calls in production · billed, but not found in code |
+| **keep** | Used, with no overlap, or marked `keep: true` |
 
 ## Use it as a library
 
 ```ts
 import { scan } from 'stackprune';
 
-const report = await scan({ paths: ['../api', '../web'], usage: ['./usage'] });
-for (const i of report.integrations.filter((i) => i.verdict === 'cut')) {
-  console.log(i.vendor.name, i.reasons[0]);
-}
+const r = await scan({ paths: ['../api', '../web'], usage: ['./usage'], billing: ['./card.csv'] });
+r.unusedPackages.filter((p) => p.confidence === 'high').forEach((p) => console.log(p.name, p.where));
+r.duplicates.forEach((d) => console.log(d.label, d.families.map((f) => f.name)));
 ```
 
 ## Privacy
 
 - Runs locally. The CLI makes no network requests.
-- `.env` files are parsed for **variable names only**. Values are never read into the report.
-- The runtime probe records hostnames and counters, nothing about request content.
-- Reports contain repo-relative file paths, vendor names and your config. Review them before sharing outside your team.
+- `.env` files are read for **variable names only**. Values never reach a report.
+- The production probe records package names, hostnames and counters, never request content.
+- Billing exports stay on your machine. Reports include payee names and amounts, so treat them like the export itself.
 
 ## Supported
 
-| | Dependencies | Imports | Env / hosts |
+| | Unused packages | Duplicates | Integrations |
 |---|---|---|---|
 | JavaScript / TypeScript (npm, pnpm, yarn, bun) | ✅ | ✅ | ✅ |
 | Python (pip, Poetry, uv, Pipenv) | ✅ | ✅ | ✅ |
 | Go | ✅ | ✅ | ✅ |
-| Ruby | ✅ | ✅ | ✅ |
-| Rust | ✅ | ✅ | ✅ |
-| PHP (Composer), .NET (NuGet) | ✅ | – *(assumed used)* | ✅ |
-| Java / Kotlin / Swift / Dart | – | – | ✅ |
+| Ruby, Rust | – | – | ✅ |
+| PHP (Composer), .NET (NuGet) | – | – | ✅ *(dependencies assumed used)* |
 
 `npx stackprune catalog` lists all known vendors; `npx stackprune catalog analytics` filters them.
 
 ## Limitations
 
-Honest list, so you know what a verdict means:
+Here's what a finding means, and where it can be wrong:
 
-- **Static ≠ live.** "Imported" doesn't mean the code path runs. Add runtime data for that.
-- **Browser and mobile SDKs** can't be probed from a Node server, so they're never marked dormant. Their evidence is static only.
-- **Costs come from you.** stackprune doesn't read invoices (yet). Without costs you still get the cut/review/keep list, just no savings total.
-- **Reflection and string-built imports** (`require(name)`) aren't followed. Neither are SDKs used only through a framework's config, which show up as "only read as env vars" and land in review, not cut.
-- **The catalog is finite.** Unknown domains help, and `vendors:` in config fills the gap. PRs to the catalog are welcome.
+- **Static is not live.** "Imported" doesn't mean the code path runs. Add production data for that.
+- **Bundled apps.** Next.js and webpack server bundles inline their dependencies, so the probe can't see them load. stackprune only uses package data when it saw an app load real `node_modules` packages.
+- **Browser and mobile code** can't be probed from a server. Its findings are static only.
+- **Dynamic imports** (`require(name)`) and plugins loaded by string from code aren't followed. That's why tool plugins are marked *check first*.
+- **Ruby and PHP** load dependencies through autoloaders, so "unused" can't be judged from imports there.
+- **The catalogs are finite.** Unlisted SDK detection, unknown domains and `vendors:` fill the gaps, and PRs are welcome.
 
 ## Contributing
 
-The vendor catalog lives in [`src/catalog/vendors.ts`](src/catalog/vendors.ts). Adding a vendor is one object: id, name, category, packages per ecosystem, env var patterns, API hosts. Keep patterns specific: `STRIPE_*`, not `*_KEY`. The tests reject over-broad ones.
+Two data files drive most of the results:
+- [`src/catalog/vendors.ts`](src/catalog/vendors.ts): services, recognised by package, env var pattern and API host;
+- [`src/catalog/purposes.ts`](src/catalog/purposes.ts): jobs (dates, icons, HTTP…) and the library families that do them.
+
+Keep patterns specific (`STRIPE_*`, never `*_KEY`). The tests reject over-broad ones and catch a package listed in two families of the same job.
 
 ```bash
 pnpm install

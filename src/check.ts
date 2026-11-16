@@ -15,6 +15,10 @@ export interface CheckResult {
   violations: { integration: Integration; problems: string[] }[];
   /** Integrations unused on the PR branch (all of them, not only new ones). */
   unused: Integration[];
+  /** Dependencies this branch adds, with what's wrong with them (if anything). */
+  addedPackages: { name: string; ecosystem: string; dev: boolean; unused: boolean; duplicateOf?: { label: string; existing: string[] }; introducedWithAI?: string }[];
+  /** Policy problems with added packages (check.blockUnusedPackages / check.blockDuplicates). */
+  packageViolations: string[];
 }
 
 /**
@@ -59,7 +63,35 @@ export async function check(opts: { path?: string; base: string; configPath?: st
       if (config.check?.requirePurpose && !meta?.purpose) problems.push('no purpose');
       if (problems.length) violations.push({ integration: i, problems });
     }
-    return { base: opts.base, added, removed, violations, unused: head.integrations.filter((i) => i.verdict === 'cut') };
+    // Packages: what does this branch add, and is any of it dead weight or a second library for the same job?
+    const key = (eco: string, n: string) => `${eco}:${n}`;
+    const beforePkgs = new Set(before.scans.flatMap((s) => s.facts.declared.map((d) => key(d.ecosystem, d.name))));
+    const headDeclared = head.scans.flatMap((s) => s.facts.declared);
+    const unusedHead = new Map(head.unusedPackages.filter((u) => !u.runtime).map((u) => [key(u.ecosystem, u.name), u]));
+    const seenPkg = new Set<string>();
+    const addedPackages: CheckResult['addedPackages'] = [];
+    for (const d of headDeclared) {
+      const k = key(d.ecosystem, d.name);
+      if (beforePkgs.has(k) || seenPkg.has(k) || d.name.startsWith('@types/')) continue;
+      seenPkg.add(k);
+      const dup = head.duplicates.find((x) => x.families.some((f) => f.packages.includes(d.name)));
+      const others = dup?.families.filter((f) => !f.packages.includes(d.name)).map((f) => f.name);
+      addedPackages.push({
+        name: d.name,
+        ecosystem: d.ecosystem,
+        dev: d.dev,
+        unused: unusedHead.has(k),
+        duplicateOf: dup && others?.length ? { label: dup.label, existing: others } : undefined,
+        introducedWithAI: unusedHead.get(k)?.introducedWithAI,
+      });
+    }
+    const packageViolations: string[] = [];
+    for (const p of addedPackages) {
+      if (config.check?.blockUnusedPackages && p.unused) packageViolations.push(`${p.name} is added but never used`);
+      if (config.check?.blockDuplicates && p.duplicateOf) packageViolations.push(`${p.name} duplicates ${p.duplicateOf.existing.join(', ')} (${p.duplicateOf.label})`);
+    }
+
+    return { base: opts.base, added, removed, violations, unused: head.integrations.filter((i) => i.verdict === 'cut'), addedPackages, packageViolations };
   } finally {
     await baseWt.remove();
     await headWt.remove();
@@ -69,8 +101,17 @@ export async function check(opts: { path?: string; base: string; configPath?: st
 
 export function renderCheckMarkdown(r: CheckResult): string {
   const out: string[] = ['<!-- stackprune -->', '### stackprune'];
-  if (!r.added.length && !r.removed.length) {
-    out.push('', `No integrations added or removed compared to \`${r.base}\`.`);
+  const flagged = r.addedPackages.filter((p) => p.unused || p.duplicateOf);
+  if (!r.added.length && !r.removed.length && !flagged.length) {
+    out.push('', `No integrations added or removed compared to \`${r.base}\`, and no unused or duplicate packages added.`);
+  }
+  if (flagged.length) {
+    out.push('', `**This PR adds ${flagged.length} package${flagged.length === 1 ? '' : 's'} worth a second look:**`, '');
+    for (const p of flagged) {
+      const why = [p.unused ? 'nothing uses it' : '', p.duplicateOf ? `you already use ${p.duplicateOf.existing.join(', ')} for ${p.duplicateOf.label.toLowerCase()}` : ''].filter(Boolean).join('; ');
+      out.push(`- \`${p.name}\`${p.dev ? ' (dev)' : ''}: ${why}${p.introducedWithAI ? ` · added with ${p.introducedWithAI}` : ''}`);
+    }
+    if (r.packageViolations.length) out.push('', `⚠️ Blocked by policy: ${r.packageViolations.join('; ')}`);
   }
   if (r.added.length) {
     out.push('', `**This PR adds ${r.added.length} integration${r.added.length === 1 ? '' : 's'}:**`, '');
@@ -95,7 +136,13 @@ export function renderCheckMarkdown(r: CheckResult): string {
 
 export function renderCheckTerminal(r: CheckResult): string {
   const lines: string[] = [''];
-  if (!r.added.length && !r.removed.length) lines.push(`No integrations added or removed compared to ${r.base}.`);
+  const flagged = r.addedPackages.filter((p) => p.unused || p.duplicateOf);
+  if (!r.added.length && !r.removed.length && !flagged.length) lines.push(`No integrations added or removed compared to ${r.base}, and no unused or duplicate packages added.`);
+  for (const p of flagged) {
+    const why = [p.unused ? 'unused' : '', p.duplicateOf ? `duplicates ${p.duplicateOf.existing.join(', ')} (${p.duplicateOf.label})` : ''].filter(Boolean).join('; ');
+    lines.push(`+ package ${p.name}: ${why}`);
+  }
+  for (const v of r.packageViolations) lines.push(`  [policy] ${v}`);
   for (const i of r.added) {
     const v = r.violations.find((x) => x.integration === i);
     lines.push(`+ ${i.vendor.name} (${i.vendor.category}) — ${i.reasons.join(' · ')}${v ? `  [policy: ${v.problems.join(', ')}]` : ''}`);

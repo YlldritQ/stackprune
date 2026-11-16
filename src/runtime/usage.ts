@@ -20,6 +20,15 @@ export interface UsageRecord {
   errors?: number;
 }
 
+/** Packages the app loaded during a window (written by the probe with kind "packages"). */
+export interface PackagesRecord {
+  kind: 'packages';
+  ts: string;
+  from?: string;
+  app?: string;
+  packages: string[];
+}
+
 export interface UsageData {
   byVendor: Map<string, RuntimeUsage>;
   unknownHosts: Map<string, number>;
@@ -28,6 +37,8 @@ export interface UsageData {
   apps: Set<string>;
   /** True when some records carry no app name (they're assumed to cover every target). */
   anonymous: boolean;
+  /** app → packages loaded at runtime (from node_modules) during the window. */
+  packagesByApp: Map<string, Set<string>>;
 }
 
 function listFiles(p: string): string[] {
@@ -44,6 +55,7 @@ export function loadUsage(paths: string[], catalog: Catalog): UsageData {
   const byVendor = new Map<string, RuntimeUsage>();
   const unknownHosts = new Map<string, number>();
   const apps = new Set<string>();
+  const packagesByApp = new Map<string, Set<string>>();
   let anonymous = false;
   let from: string | undefined;
   let to: string | undefined;
@@ -55,6 +67,18 @@ export function loadUsage(paths: string[], catalog: Catalog): UsageData {
       try {
         r = JSON.parse(line) as UsageRecord;
       } catch {
+        continue;
+      }
+      if ((r as unknown as PackagesRecord).kind === 'packages') {
+        const pr = r as unknown as PackagesRecord;
+        const app = pr.app ?? '*';
+        let set = packagesByApp.get(app);
+        if (!set) packagesByApp.set(app, (set = new Set()));
+        for (const p of pr.packages ?? []) set.add(p);
+        if (pr.app) apps.add(pr.app);
+        const start = pr.from ?? pr.ts;
+        if (!from || start < from) from = start;
+        if (!to || pr.ts > to) to = pr.ts;
         continue;
       }
       if (typeof r.calls !== 'number' || !r.ts) continue;
@@ -79,5 +103,5 @@ export function loadUsage(paths: string[], catalog: Catalog): UsageData {
       }
     }
   }
-  return { byVendor, unknownHosts, window: from && to ? { from, to } : undefined, apps, anonymous };
+  return { byVendor, unknownHosts, window: from && to ? { from, to } : undefined, apps, anonymous, packagesByApp };
 }

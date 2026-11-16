@@ -1,41 +1,56 @@
 
-stackprune · 3 repos · 14 integrations
-  6 cut   4 review   4 keep
-  6 added in AI-assisted commits — 5 of them unused
+stackprune · 3 repos · 16 integrations · 27 dependencies
+  integrations  6 cut   4 review   6 keep   │   potential savings $428/mo (+$267/mo under review)
+  packages      1 unused   3 duplicates
+  8 added in AI-assisted commits — 6 of them unused
 
-✂ CUT — not used, safe to remove
-  Algolia                search          web                        ?           Installed (algoliasearch) in web but never imported
-                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
-  LaunchDarkly           feature-flags   api                        ?           Installed (@launchdarkly/node-server-sdk) in api but never imported
+✂ CUT — integrations nothing uses
+  LaunchDarkly           feature-flags   api                        $150/mo     Installed (@launchdarkly/node-server-sdk) in api but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
-  Mixpanel               analytics       api                        ?           Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
+  Segment (Twilio)       analytics       web                        $120/mo     Installed (@segment/analytics-next) in web but never imported
+                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
+  Algolia                search          web                        $85/mo      Installed (algoliasearch) in web but never imported
+                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
+  Mixpanel               analytics       api                        $28/mo      Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it
                                                                                 ↳ Added in an AI-assisted commit (Cursor) on 2026-05-02
-  Segment (Twilio)       analytics       web                        ?           Installed (@segment/analytics-next) in web but never imported
-                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
-  SendGrid               email           worker                     ?           Installed (sendgrid) in worker but never imported
-  Twilio                 sms             api                        ?           Installed (twilio) in api but never imported
+  Twilio                 sms             api                        $25/mo      Installed (twilio) in api but never imported
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-03-18
+  SendGrid               email           worker                     $20/mo      Installed (sendgrid) in worker but never imported
 
-? REVIEW — used, but something looks off
-  Bugsnag                error-tracking  api                        ?           Used in 1 file across api
-                                                                                ↳ Overlaps with Sentry in acme (error-tracking)
-  PostHog                analytics       web                        ?           Used in 1 file across web
-                                                                                ↳ Overlaps with Vercel Analytics in acme (analytics)
-  Sentry                 error-tracking  api, web, worker           ?           Used in 3 files across api, web, worker
+? REVIEW — integrations where something looks off
+  Telemetrix             other           web                        $99/mo      Used in 1 file across web
+                                                                                ↳ Needs NEXT_PUBLIC_TELEMETRIX_PUBLISHABLE_KEY, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off
+                                                                                ↳ app/telemetry.ts describes itself as "Telemetrix browser SDK (quick test, remove before release)."
+                                                                                ↳ Not in the catalog: detected as a vendor SDK (@telemetrix/browser) from its credentials or API domain
+                                                                                ↳ Added in an AI-assisted commit (Claude) on 2026-07-21
+  Sentry                 error-tracking  api, web, worker           $89/mo      Used in 3 files across api, web, worker
                                                                                 ↳ Overlaps with Bugsnag in acme (error-tracking)
-  Vercel Analytics       analytics       web                        ?           Used in 1 file across web
+  Bugsnag                error-tracking  api                        $59/mo      Used in 1 file across api
+                                                                                ↳ Needs BUGSNAG_API_KEY, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off
+                                                                                ↳ Overlaps with Sentry in acme (error-tracking)
+  Vercel Analytics       analytics       web                        $20/mo      Used in 1 file across web
                                                                                 ↳ Added in an AI-assisted commit (Claude) on 2026-04-09
                                                                                 ↳ Overlaps with PostHog in acme (analytics)
 
-✓ KEEP — in use
-  AWS S3                 storage         worker                     ?           Used in 1 file across worker
-  Datadog                apm             api                        ?           Used in 1 file across api
-  OpenAI                 ai              api, worker                ?           Used in 2 files across api, worker
-  Stripe                 payments        api, web                   ?           Used in 2 files across api, web
+▢ UNUSED PACKAGES — declared, but nothing imports, runs or configures them
+  lodash                             web                                                 added 2026-07-21 by Sam · AI: Claude
 
-◌ UNKNOWN — external domains in code that match no known vendor
-  parcelpartner.io             1 file       api                            api.parcelpartner.io                                            
-  Track the real ones by adding them under `vendors:` in stackprune.yml; hide your own domains with `ignoreHosts:`.
+⇄ DUPLICATES — different libraries doing the same job in one app
+  Date & time handling in acme
+    ● Day.js                 2 files    dayjs · AI: Claude 2026-04-09
+    ○ Moment                 1 file     moment · AI: Claude 2026-07-21
+    → pick one. Moving everything onto Day.js (most used) touches 1 file. moment is in maintenance mode; dayjs is a near drop-in replacement, date-fns is tree-shakeable
+  Icon library in acme
+    ● Lucide                 2 files    lucide-react · AI: Claude 2026-04-09
+    ○ react-icons            1 file     react-icons · AI: Claude 2026-07-21
+    → pick one. Moving everything onto Lucide (most used) touches 1 file. Each set adds its own bundle weight; mixing sets is a common source of inconsistent icons
+  Unique ID generation in acme
+    ● nanoid                 1 file     nanoid · AI: Claude 2026-07-21
+    ○ uuid                   1 file     uuid · AI: Claude 2026-07-21
+    → pick one. Moving everything onto nanoid (most used) touches 1 file. crypto.randomUUID() is built into Node and browsers; shortid is deprecated in favour of nanoid
 
-• 14 paid integrations have no cost yet — add costs under `integrations:` in stackprune.yml to see savings (`stackprune init` writes a starter file).
-• Static scan only. Add the runtime probe (`node --import stackprune/register`) and pass `--usage .stackprune` to catch integrations that are in code but never called.
+✓ KEEP — integrations in use
+  OpenAI · Stripe · Datadog · AWS S3 · ParcelPartner · PostHog
+
+• 1 paid integration has no cost yet — add costs under `integrations:` in stackprune.yml, or pass a billing export with `--billing payments.csv`.
+• Static scan only. Run the production probe (`node --import stackprune/register`) and pass `--usage .stackprune` to find code that is imported but never runs.

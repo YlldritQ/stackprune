@@ -98,5 +98,5 @@ runs:
       if: inputs.fail-on-violation == 'true' && steps.run.outputs.exit-code == '1'
       shell: bash
       run: |
-        echo "::error::A new integration has no owner/purpose in stackprune.yml. See the job summary."
+        echo "::error::This PR breaks the stackprune policy (unowned integration, unused or duplicate package). See the job summary."
         exit 1

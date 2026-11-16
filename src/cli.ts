@@ -13,7 +13,7 @@ import type { ScanResult } from './types.js';
 
 const VERSION = '0.1.0';
 
-const HELP = `stackprune — find the integrations you pay for but don't use
+const HELP = `stackprune — unused packages, duplicate libraries and paid integrations nobody uses
 
 Usage
   stackprune [scan] [paths...]      Scan repos (a folder of repos is expanded) and report
@@ -25,10 +25,11 @@ Options
   -f, --format <fmt>   table (default) | md | json | html
   -o, --out <file>     Write the report to a file instead of stdout
   -u, --usage <path>   Runtime usage JSONL file or folder (repeatable), e.g. .stackprune
-  -c, --config <file>  Config file (default: stackprune.yml in cwd or first path)
+      --billing <csv>  Bank / card / accounting export to match payments against (repeatable)
+  -c, --config <file>  Config file (default: stackprune.yml next to the scanned code, else in cwd)
       --no-git         Skip git history (faster; no "added by AI" / staleness signals)
       --all            Show details for every integration
-      --fail-on <v>    Exit 1 if any integration has this verdict: cut | review
+      --fail-on <v>    Exit 1 on findings: cut (unused integrations/packages) | review (also duplicates)
   -h, --help           Show help
   -v, --version        Show version
 
@@ -47,6 +48,7 @@ async function main(argv: string[]): Promise<number> {
       format: { type: 'string', short: 'f' },
       out: { type: 'string', short: 'o' },
       usage: { type: 'string', short: 'u', multiple: true },
+      billing: { type: 'string', multiple: true },
       config: { type: 'string', short: 'c' },
       base: { type: 'string', short: 'b' },
       'no-git': { type: 'boolean' },
@@ -113,15 +115,16 @@ async function main(argv: string[]): Promise<number> {
       if (format === 'json') emit(`${JSON.stringify(r, (k, v) => (k === 'hits' ? undefined : v), 2)}\n`);
       else if (format === 'md') emit(renderCheckMarkdown(r));
       else emit(renderCheckTerminal(r));
-      return r.violations.length ? 1 : 0;
+      return r.violations.length || r.packageViolations.length ? 1 : 0;
     }
 
     default: {
-      const r = await scan({ paths: args, configPath: values.config, usage: values.usage, git: !values['no-git'] });
+      const r = await scan({ paths: args, configPath: values.config, usage: values.usage, billing: values.billing, git: !values['no-git'] });
       emit(render(r, format, !!values.all));
       const failOn = values['fail-on'];
-      if (failOn === 'cut' && r.integrations.some((i) => i.verdict === 'cut')) return 1;
-      if (failOn === 'review' && r.integrations.some((i) => i.verdict !== 'keep')) return 1;
+      const unusedHigh = r.unusedPackages.some((u) => u.confidence === 'high');
+      if (failOn === 'cut' && (unusedHigh || r.integrations.some((i) => i.verdict === 'cut'))) return 1;
+      if (failOn === 'review' && (unusedHigh || r.duplicates.length || r.integrations.some((i) => i.verdict !== 'keep'))) return 1;
       return 0;
     }
   }

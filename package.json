@@ -1,7 +1,7 @@
 {
   "name": "stackprune",
   "version": "0.1.0",
-  "description": "Find the third-party integrations you pay for but don't use. Scans your repos, measures real usage, and tells you what to cut.",
+  "description": "Keep your dependencies clean: find unused packages, duplicate libraries and paid integrations nobody uses \u2014 in your repo, on every PR, and in production.",
   "type": "module",
   "license": "MIT",
   "author": "Ylldrit Qallakaj",
@@ -10,16 +10,19 @@
     "url": "git+https://github.com/YlldritQ/stackprune.git"
   },
   "keywords": [
+    "dependencies",
+    "unused-dependencies",
+    "duplicate-dependencies",
+    "depcheck",
+    "dead-code",
     "integrations",
     "saas",
     "cost",
     "finops",
-    "dependencies",
-    "audit",
-    "unused",
-    "dead-code",
-    "vendor",
-    "cli"
+    "ai",
+    "code-quality",
+    "cli",
+    "github-action"
   ],
   "bin": {
     "stackprune": "dist/cli.js"

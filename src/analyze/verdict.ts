@@ -1,7 +1,8 @@
+import type { VendorSpend } from '../billing.js';
 import type { Catalog } from '../catalog/index.js';
 import type { UsageData } from '../runtime/usage.js';
 import type { TargetScan } from '../scan/index.js';
-import type { Category, Config, CostEntry, Integration, Status, TargetHit, Verdict } from '../types.js';
+import type { Category, Config, CostEntry, Integration, IntegrationConfig, Status, TargetHit, Verdict } from '../types.js';
 
 /** Categories where running two vendors side by side is usually redundant. */
 export const OVERLAP_CATEGORIES = new Set<Category>([
@@ -35,7 +36,7 @@ function targetStatus(hit: TargetHit, scan: TargetScan | undefined): Status {
   return 'config-only';
 }
 
-const RANK: Record<Status, number> = { active: 4, dormant: 3, unused: 2, 'config-only': 1, 'dev-only': 0 };
+const RANK: Record<Status, number> = { active: 4, tool: 4, dormant: 3, unused: 2, 'config-only': 1, absent: 0, 'dev-only': 0 };
 
 function list(items: string[], max = 3): string {
   const uniq = [...new Set(items)];
@@ -51,10 +52,21 @@ export interface AnalyzeInput {
   catalog: Catalog;
   config: Config;
   usage?: UsageData;
+  /** Monthly spend per vendor id, from billing exports. */
+  spend?: Map<string, VendorSpend>;
+  currency?: string;
   now?: Date;
 }
 
-export function analyze({ scans, catalog, config, usage, now = new Date() }: AnalyzeInput): Integration[] {
+function money(n: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: n % 1 === 0 ? 0 : 2 }).format(n);
+  } catch {
+    return `${n} ${currency}`;
+  }
+}
+
+export function analyze({ scans, catalog, config, usage, spend, currency = 'USD', now = new Date() }: AnalyzeInput): Integration[] {
   const staleDays = config.staleDays ?? 365;
   const scanByTarget = new Map(scans.map((s) => [s.target.name, s]));
   const hitsByVendor = new Map<string, TargetHit[]>();
@@ -71,7 +83,7 @@ export function analyze({ scans, catalog, config, usage, now = new Date() }: Ana
     const vendor = catalog.byId.get(id);
     if (!vendor) continue;
     const meta = config.integrations?.[id] ?? {};
-    const cost: CostEntry | undefined = typeof meta.cost === 'number' ? { monthly: meta.cost } : meta.cost;
+    const cost = costFor(id, meta, spend);
     const reasons: string[] = [];
 
     const perTarget = hits.map((h) => ({ hit: h, status: targetStatus(h, scanByTarget.get(h.target)) }));
@@ -139,8 +151,28 @@ export function analyze({ scans, catalog, config, usage, now = new Date() }: Ana
         const n = codeFiles;
         reasons.push(`Used in ${n} file${n === 1 ? '' : 's'} across ${list(where('active'))}`);
         if (u?.calls) reasons.push(`${u.calls.toLocaleString('en-US')} calls at runtime`);
+
+        // Wired up, but maybe never switched on: the code needs a key no env file sets.
+        const hasHost = prod.some((e) => e.kind === 'host');
+        const declaredEnv = new Set(prod.filter((e) => e.kind === 'env-declared').map((e) => e.detail));
+        const readEnv = [...new Set(envRefs.map((e) => e.detail))];
+        const envFilesSeen = hits.every((h) => (scanByTarget.get(h.target)?.facts.envFiles ?? 0) > 0);
+        if (!hasHost && readEnv.length && envFilesSeen && !readEnv.some((e) => declaredEnv.has(e))) {
+          reasons.push(`Needs ${list(readEnv)}, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off`);
+          verdict = 'review';
+        }
+        // The file that wires it up calls itself a test / spike / PoC.
+        const marked = prod.find((e) => e.kind === 'import' && e.marker);
+        if (marked) {
+          reasons.push(`${marked.file} describes itself as "${marked.marker}"`);
+          verdict = 'review';
+        }
         break;
       }
+    }
+    if (vendor.detected === 'sdk') {
+      const pkg = prod.find((e) => e.kind === 'manifest')?.detail;
+      reasons.push(`Not in the catalog: detected as a vendor SDK${pkg ? ` (${pkg})` : ''} from its credentials or API domain`);
     }
 
     // Partial leftovers: active somewhere, dead weight elsewhere.
@@ -175,6 +207,38 @@ export function analyze({ scans, catalog, config, usage, now = new Date() }: Ana
       introducedAt: intro?.introducedAt,
       lastTouchedAt,
     });
+  }
+
+  // Paid for, but no repo references it at all (from config costs or billing exports).
+  const seen = new Set(out.map((i) => i.vendor.id));
+  const paidIds = new Set<string>([
+    ...Object.entries(config.integrations ?? {})
+      .filter(([, m]) => m.kind === 'tool' || (typeof m.cost === 'number' ? m.cost > 0 : (m.cost?.monthly ?? 0) > 0))
+      .map(([id]) => id),
+    ...(spend?.keys() ?? []),
+  ]);
+  for (const id of paidIds) {
+    if (seen.has(id) || config.ignore?.includes(id)) continue;
+    const meta = config.integrations?.[id] ?? {};
+    const s = spend?.get(id);
+    const vendor = catalog.byId.get(id) ?? { id, name: meta.name ?? s?.payees[0] ?? id, category: 'other' as const, paid: true, detected: s ? ('billing' as const) : ('config' as const) };
+    const cost = costFor(id, meta, spend);
+    const amount = cost ? `${money(cost.monthly, cost.currency ?? currency)}/mo` : 'it';
+    const reasons: string[] = [];
+    let status: Status = 'absent';
+    let verdict: Verdict;
+    if (meta.kind === 'tool') {
+      status = 'tool';
+      verdict = 'keep';
+      reasons.push('Used by people, not code (kind: tool), so the code scan doesn\'t judge it');
+    } else if (cost?.source === 'billing') {
+      verdict = 'review';
+      reasons.push(`Billed ${amount} (${list(s?.payees ?? [])}) but no repo references it. If people use it directly (seats), mark it \`kind: tool\`; otherwise cancel it`);
+    } else {
+      verdict = 'cut';
+      reasons.push(`You pay ${amount} but no repo references it: no package, import, env var or API host`);
+    }
+    out.push({ vendor, status, verdict, reasons, hits: [], codeFiles: 0, removalFiles: 0, overlapsWith: [], cost, owner: meta.owner, purpose: meta.purpose });
   }
 
   // Overlap: two live vendors doing the same job inside the same app. An "app" is the folder
@@ -223,4 +287,10 @@ export function analyze({ scans, catalog, config, usage, now = new Date() }: Ana
       Number(b.vendor.paid ?? false) - Number(a.vendor.paid ?? false) ||
       a.vendor.name.localeCompare(b.vendor.name),
   );
+}
+
+function costFor(id: string, meta: IntegrationConfig, spend?: Map<string, VendorSpend>): CostEntry | undefined {
+  if (meta.cost !== undefined && meta.cost !== null) return typeof meta.cost === 'number' ? { monthly: meta.cost, source: 'config' } : { ...meta.cost, source: 'config' };
+  const s = spend?.get(id);
+  return s ? { monthly: s.monthly, currency: s.currency, source: 'billing', notes: s.payees.join(', ') } : undefined;
 }

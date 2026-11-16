@@ -23,7 +23,7 @@ export function renderMarkdown(r: ScanResult): string {
   out.push('# stackprune report');
   out.push('');
   out.push(
-    `${r.targets.length} ${r.targets.length === 1 ? 'repo' : 'repos'} · **${s.total} integrations** · ${s.byVerdict.cut} to cut · ${s.byVerdict.review} to review · ${s.byVerdict.keep} to keep` +
+    `${r.targets.length} ${r.targets.length === 1 ? 'repo' : 'repos'} · **${s.total} integrations** · ${s.byVerdict.cut} to cut · ${s.byVerdict.review} to review · ${s.byVerdict.keep} to keep · **${r.unusedPackages.filter((u) => u.confidence === 'high').length} unused packages** · **${r.duplicates.length} duplicates**` +
       (s.savingsCut ? ` · potential savings **${money(s.savingsCut, r.currency)}/mo**` : '') +
       (s.savingsReview ? ` (+${money(s.savingsReview, r.currency)}/mo under review)` : ''),
   );
@@ -34,6 +34,32 @@ export function renderMarkdown(r: ScanResult): string {
     const items = r.integrations.filter((i) => i.verdict === v);
     if (!items.length) continue;
     out.push('', `## ${HEADINGS[v]} (${items.length})`, '', table(items, r.currency));
+  }
+
+  const high = r.unusedPackages.filter((u) => u.confidence === 'high');
+  const low = r.unusedPackages.filter((u) => u.confidence === 'low');
+  if (r.unusedPackages.length) {
+    out.push('', `## 📦 Unused packages (${high.length}${low.length ? ` + ${low.length} to double-check` : ''})`, '', 'Declared, but nothing imports, runs or configures them.', '');
+    out.push('| Package | Where | Kind | Added | Why |', '|---|---|---|---|---|');
+    for (const u of [...high, ...low]) {
+      const where = u.where.map((w) => `${w.target}/${w.manifest}`).join(', ');
+      const kind = [u.dev ? 'dev' : 'prod', u.confidence === 'low' ? 'check first' : ''].filter(Boolean).join(', ');
+      const added = [u.introducedAt?.slice(0, 10), u.introducedBy, u.introducedWithAI ? `🤖 ${u.introducedWithAI}` : ''].filter(Boolean).join(' · ');
+      out.push(`| \`${u.name}\` | ${esc(where)} | ${kind} | ${esc(added || '—')} | ${esc(u.reason)} |`);
+    }
+  }
+  if (r.duplicates.length) {
+    out.push('', `## ⇄ Duplicates (${r.duplicates.length})`, '', 'Different libraries doing the same job in one app. The most-used one is listed first.', '');
+    for (const d of r.duplicates) {
+      const [keep, ...rest] = d.families;
+      const move = rest.reduce((n, f) => n + f.files, 0);
+      out.push(`**${esc(d.label)}** in ${esc(d.app)}: ${d.families.map((f) => `${f.name} (${f.files} file${f.files === 1 ? '' : 's'}${f.introducedWithAI ? `, 🤖 ${f.introducedWithAI}` : ''})`).join(' · ')}  `);
+      out.push(`→ pick one. Moving everything onto **${esc(keep!.name)}** (most used) touches ${move} file${move === 1 ? '' : 's'}.${d.note ? ` ${esc(d.note)}` : ''}`, '');
+    }
+  }
+  if (r.unmatchedSpend.length) {
+    out.push('', '## 💶 Paid, not recognised', '', 'Payments in the billing export that match no known integration.', '', '| Payee | Monthly | Payments |', '|---|---|---|');
+    for (const p of r.unmatchedSpend.slice(0, 50)) out.push(`| ${esc(p.payee)} | ${money(p.monthly, p.currency)} | ${p.payments} |`);
   }
 
   if (r.unknownHosts.length) {

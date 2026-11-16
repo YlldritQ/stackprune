@@ -41,7 +41,7 @@ export function summarize(r: ScanResult): Summary {
     s.byVerdict[i.verdict]++;
     if (i.verdict === 'cut') s.savingsCut += i.cost?.monthly ?? 0;
     if (i.verdict === 'review') s.savingsReview += i.cost?.monthly ?? 0;
-    if (!i.cost && i.vendor.paid && i.status !== 'dev-only') s.unpricedPaid++;
+    if (!i.cost && i.vendor.paid && i.status !== 'dev-only' && i.status !== 'absent') s.unpricedPaid++;
     if (i.introducedWithAI) {
       s.aiIntroduced++;
       if (i.verdict === 'cut') s.aiIntroducedUnused++;

@@ -70,6 +70,7 @@ const GO_SINGLE = /^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"([^"]+)"/gm;
 const GO_BLOCK = /^[ \t]*import[ \t]*\(([\s\S]*?)\)/gm;
 const RUBY_REQUIRE = /(?:^|\s)require(?:_relative)?\s*\(?\s*['"]([^'"\n]+)['"]/g;
 const RUST_USE = /(?:^|\s)(?:use|extern\s+crate)\s+([a-z_][a-z0-9_]*)/g;
+const CSS_IMPORT = /@(?:import|use|forward|plugin|config|reference)\s+(?:url\(\s*)?['"]~?([^'"\n]+)['"]/g;
 
 const ENV_TOKEN = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g;
 const URL_HOST = /\b(?:https?|wss?):\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi;
@@ -170,6 +171,14 @@ function extractImports(lang: WalkedFile['lang'], text: string, lines: Lines, ou
     case 'rust':
       RUST_USE.lastIndex = 0;
       while ((m = RUST_USE.exec(text))) push(out, lines, m[1]!, m.index);
+      break;
+    case 'css':
+      CSS_IMPORT.lastIndex = 0;
+      while ((m = CSS_IMPORT.exec(text))) {
+        const spec = m[1]!;
+        if (!/^(https?:|\/|\.)/.test(spec)) push(out, lines, spec, m.index);
+      }
+      if (/@tailwind\s|@import\s+['"]tailwindcss/.test(text)) out.imports.push({ spec: 'tailwindcss', line: 1 });
       break;
     default:
       break;

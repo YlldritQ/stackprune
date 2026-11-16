@@ -1,44 +1,60 @@
 # stackprune report
 
-3 repos · **14 integrations** · 6 to cut · 4 to review · 4 to keep
+3 repos · **16 integrations** · 6 to cut · 4 to review · 6 to keep · **1 unused packages** · **3 duplicates** · potential savings **$428/mo** (+$267/mo under review)
 
-> 6 integrations were added in AI-assisted commits, and 5 of those are unused.
+> 7 integrations were added in AI-assisted commits, and 5 of those are unused.
 
 ## ✂️ Cut — not used, safe to remove (6)
 
 | Integration | Category | Where | Cost | Why | Evidence | Owner |
 |---|---|---|---|---|---|---|
-| **Algolia** | search | web | ? | Installed (algoliasearch) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 2 envs, 1 dep | — |
-| **LaunchDarkly** | feature-flags | api | ? | Installed (@launchdarkly/node-server-sdk) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 1 env, 1 dep | — |
-| **Mixpanel** | analytics | api | ? | Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it · Added in an AI-assisted commit (Cursor) on 2026-05-02 | 1 env | — |
-| **Segment (Twilio)** | analytics | web | ? | Installed (@segment/analytics-next) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 1 dep | — |
-| **SendGrid** | email | worker | ? | Installed (sendgrid) in worker but never imported | 1 dep | — |
-| **Twilio** | sms | api | ? | Installed (twilio) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 2 envs, 1 dep | — |
+| **LaunchDarkly** | feature-flags | api | $150/mo | Installed (@launchdarkly/node-server-sdk) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 1 env, 1 dep | — |
+| **Segment (Twilio)** | analytics | web | $120/mo | Installed (@segment/analytics-next) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 1 dep | — |
+| **Algolia** | search | web | $85/mo | Installed (algoliasearch) in web but never imported · Added in an AI-assisted commit (Claude) on 2026-04-09 | 2 envs, 1 dep | — |
+| **Mixpanel** | analytics | api | $28/mo | Configured (MIXPANEL_TOKEN in .env.example) but nothing in code uses it · Added in an AI-assisted commit (Cursor) on 2026-05-02 | 1 env | — |
+| **Twilio** | sms | api | $25/mo | Installed (twilio) in api but never imported · Added in an AI-assisted commit (Claude) on 2026-03-18 | 2 envs, 1 dep | — |
+| **SendGrid** | email | worker | $20/mo | Installed (sendgrid) in worker but never imported | 1 dep | — |
 
 ## 🔍 Review — used, but something looks off (4)
 
 | Integration | Category | Where | Cost | Why | Evidence | Owner |
 |---|---|---|---|---|---|---|
-| **Bugsnag** | error-tracking | api | ? | Used in 1 file across api · Overlaps with Sentry in acme (error-tracking) | 1 dep, 1 import, 1 env ref | — |
-| **PostHog** | analytics | web | ? | Used in 1 file across web · Overlaps with Vercel Analytics in acme (analytics) | 1 env, 1 import, 1 env ref, 1 host, 1 dep | — |
-| **Sentry** | error-tracking | api, web, worker | ? | Used in 3 files across api, web, worker · Overlaps with Bugsnag in acme (error-tracking) | 1 env, 3 deps, 3 imports, 2 env refs | — |
-| **Vercel Analytics** | analytics | web | ? | Used in 1 file across web · Added in an AI-assisted commit (Claude) on 2026-04-09 · Overlaps with PostHog in acme (analytics) | 1 import, 1 dep | — |
+| **Telemetrix** | other | web | $99/mo | Used in 1 file across web · Needs NEXT_PUBLIC_TELEMETRIX_PUBLISHABLE_KEY, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off · app/telemetry.ts describes itself as "Telemetrix browser SDK (quick test, remove before release)." · Not in the catalog: detected as a vendor SDK (@telemetrix/browser) from its credentials or API domain · Added in an AI-assisted commit (Claude) on 2026-07-21 | 1 import, 1 env ref, 1 dep | — |
+| **Sentry** | error-tracking | api, web, worker | $89/mo | Used in 3 files across api, web, worker · Overlaps with Bugsnag in acme (error-tracking) | 1 env, 3 deps, 3 imports, 2 env refs | platform |
+| **Bugsnag** | error-tracking | api | $59/mo | Used in 1 file across api · Needs BUGSNAG_API_KEY, which no env file in the repo sets. If your hosting dashboard doesn't set it either, this is switched off · Overlaps with Sentry in acme (error-tracking) | 1 dep, 1 import, 1 env ref | mobile |
+| **Vercel Analytics** | analytics | web | $20/mo | Used in 1 file across web · Added in an AI-assisted commit (Claude) on 2026-04-09 · Overlaps with PostHog in acme (analytics) | 1 import, 1 dep | — |
 
-## ✅ Keep — in use (4)
+## ✅ Keep — in use (6)
 
 | Integration | Category | Where | Cost | Why | Evidence | Owner |
 |---|---|---|---|---|---|---|
-| **AWS S3** | storage | worker | ? | Used in 1 file across worker · Code using it untouched for 726 days | 1 import | — |
-| **Datadog** | apm | api | ? | Used in 1 file across api | 1 dep, 1 import | — |
-| **OpenAI** | ai | api, worker | ? | Used in 2 files across api, worker | 1 env, 2 deps, 3 imports | — |
-| **Stripe** | payments | api, web | ? | Used in 2 files across api, web | 2 envs, 2 deps, 2 imports, 2 env refs | — |
+| **OpenAI** | ai | api, worker | $640/mo | Used in 2 files across api, worker | 1 env, 2 deps, 3 imports | ai-team |
+| **Stripe** | payments | api, web | $420/mo | Used in 2 files across api, web | 2 envs, 2 deps, 2 imports, 2 env refs | payments |
+| **Datadog** | apm | api | $310/mo | Used in 1 file across api | 1 dep, 1 import | platform |
+| **AWS S3** | storage | worker | $14/mo | Used in 1 file across worker · Code using it untouched for 726 days | 1 import | platform |
+| **ParcelPartner** | other | api | ? | Used in 1 file across api · Code using it untouched for 651 days | 1 host | — |
+| **PostHog** | analytics | web | free | Used in 1 file across web · Overlaps with Vercel Analytics in acme (analytics) | 1 env, 1 import, 1 env ref, 1 host, 1 dep | growth |
 
-## Unknown external domains
+## 📦 Unused packages (1)
 
-Referenced in code but not in the vendor catalog. Add the real integrations under `vendors:` in `stackprune.yml`.
+Declared, but nothing imports, runs or configures them.
 
-| Domain | Files | Where | Hosts |
-|---|---|---|---|
-| parcelpartner.io | 1 | api | api.parcelpartner.io |
+| Package | Where | Kind | Added | Why |
+|---|---|---|---|---|
+| `lodash` | web/package.json | prod | 2026-07-21 · Sam · 🤖 Claude | Declared but never imported, run or configured |
+
+## ⇄ Duplicates (3)
+
+Different libraries doing the same job in one app. The most-used one is listed first.
+
+**Date & time handling** in acme: Day.js (2 files, 🤖 Claude) · Moment (1 file, 🤖 Claude)  
+→ pick one. Moving everything onto **Day.js** (most used) touches 1 file. moment is in maintenance mode; dayjs is a near drop-in replacement, date-fns is tree-shakeable
+
+**Icon library** in acme: Lucide (2 files, 🤖 Claude) · react-icons (1 file, 🤖 Claude)  
+→ pick one. Moving everything onto **Lucide** (most used) touches 1 file. Each set adds its own bundle weight; mixing sets is a common source of inconsistent icons
+
+**Unique ID generation** in acme: nanoid (1 file, 🤖 Claude) · uuid (1 file, 🤖 Claude)  
+→ pick one. Moving everything onto **nanoid** (most used) touches 1 file. crypto.randomUUID() is built into Node and browsers; shortid is deprecated in favour of nanoid
+
 
 <sub>Generated by [stackprune](https://github.com/YlldritQ/stackprune) on 2026-11-16</sub>

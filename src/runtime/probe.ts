@@ -6,11 +6,17 @@
  * No monkey-patching, no request bodies, no paths, no headers: only hostname, count,
  * error count and total latency, aggregated in memory and flushed every minute.
  *
+ * It also records which npm packages the app actually loads (names only), so
+ * `stackprune --usage` can point at dependencies that are imported somewhere but never
+ * run in production.
+ *
  *   node --import stackprune/register server.js
  *   NODE_OPTIONS="--import stackprune/register" npm start
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
 import dc from 'node:diagnostics_channel';
+import nodeModule, { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { hostname as osHostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildCatalog, type Catalog } from '../catalog/index.js';
@@ -26,6 +32,8 @@ export interface ProbeOptions {
   flushIntervalMs?: number;
   /** Also record hosts that match no known vendor (helps discover integrations). Default true. */
   recordUnknown?: boolean;
+  /** Record which packages get loaded from node_modules. Default true. */
+  trackPackages?: boolean;
   /** Count localhost / private-network calls too. Off by default; mainly for tests. */
   allowPrivate?: boolean;
   catalog?: Catalog;
@@ -46,6 +54,18 @@ export interface Probe {
   stop(): void;
   /** Snapshot of the current (unflushed) window — handy in tests. */
   peek(): Counter[];
+  /** Packages loaded so far. */
+  packages(): string[];
+}
+
+/** "/app/node_modules/.pnpm/x@1/node_modules/@scope/pkg/dist/i.js" → "@scope/pkg" */
+export function packageFromPath(p: string): string | undefined {
+  const norm = p.replace(/\\/g, '/');
+  const i = norm.lastIndexOf('/node_modules/');
+  if (i === -1) return undefined;
+  const parts = norm.slice(i + '/node_modules/'.length).split('/');
+  if (!parts[0] || parts[0].startsWith('.')) return undefined;
+  return parts[0].startsWith('@') ? (parts[1] ? `${parts[0]}/${parts[1]}` : undefined) : parts[0];
 }
 
 const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0|\[?::1\]?|[^.]+$)|\.(local|internal|localhost|svc|cluster\.local)$/i;
@@ -150,14 +170,52 @@ export function startProbe(opts: ProbeOptions = {}): Probe {
   ];
   for (const [name, fn] of subs) dc.subscribe(name, fn);
 
+  // Which packages does the app really load? (ESM + CJS via module.registerHooks where
+  // available, plus require.cache for CJS on older Node versions.)
+  const loaded = new Set<string>();
+  const fresh = new Set<string>();
+  const notePath = (p: string | undefined) => {
+    const pkg = p ? packageFromPath(p) : undefined;
+    if (!pkg || pkg === 'stackprune' || loaded.has(pkg)) return;
+    loaded.add(pkg);
+    fresh.add(pkg);
+  };
+  const trackPackages = opts.trackPackages !== false;
+  let hooks: { deregister?: () => void } | undefined;
+  if (trackPackages) {
+    const registerHooks = (nodeModule as unknown as { registerHooks?: (h: unknown) => { deregister?: () => void } }).registerHooks;
+    if (typeof registerHooks === 'function') {
+      try {
+        hooks = registerHooks({
+          resolve(specifier: string, context: unknown, nextResolve: (s: string, c: unknown) => { url?: string }) {
+            const r = nextResolve(specifier, context);
+            if (r?.url?.startsWith('file:') && r.url.includes('/node_modules/')) notePath(fileURLToPath(r.url));
+            return r;
+          },
+        });
+      } catch {
+        /* older API shape: fall back to require.cache */
+      }
+    }
+  }
+  const requireCache = createRequire(import.meta.url).cache;
+  const sweepRequireCache = () => {
+    if (trackPackages) for (const p of Object.keys(requireCache)) notePath(p);
+  };
+
   const flush = () => {
-    if (!counters.size) {
+    sweepRequireCache();
+    if (!counters.size && !fresh.size) {
       windowStart = new Date();
       return;
     }
     const to = new Date().toISOString();
     const from = windowStart.toISOString();
-    const records = [...counters.values()].map((c) => ({ v: 1, ts: to, from, app, ...c, errors: c.errors + c.status5xx }));
+    const records: object[] = [...counters.values()].map((c) => ({ v: 1, ts: to, from, app, ...c, errors: c.errors + c.status5xx }));
+    if (fresh.size) {
+      records.push({ v: 1, kind: 'packages', ts: to, from, app, packages: [...fresh].sort() });
+      fresh.clear();
+    }
     counters.clear();
     windowStart = new Date();
     if (outDir) {
@@ -192,8 +250,13 @@ export function startProbe(opts: ProbeOptions = {}): Probe {
   active = {
     flush,
     peek: () => [...counters.values()].map((c) => ({ ...c })),
+    packages: () => {
+      sweepRequireCache();
+      return [...loaded].sort();
+    },
     stop: () => {
       clearInterval(timer);
+      hooks?.deregister?.();
       for (const [name, fn] of subs) dc.unsubscribe(name, fn);
       process.off('beforeExit', onExit);
       process.off('exit', onExit);

@@ -78,15 +78,43 @@ Sentry.init({ dsn: process.env.NEXT_PUBLIC_SENTRY_DSN });
 EOF
 git add -A && human 2025-02-10T09:00:00Z "initial web"
 
-pkg web '{ "next": "15.0.0", "@stripe/stripe-js": "^4.0.0", "posthog-js": "^1.0.0", "@sentry/nextjs": "^8.0.0", "@vercel/analytics": "^1.0.0", "@segment/analytics-next": "^1.0.0", "algoliasearch": "^5.0.0" }'
+pkg web '{ "next": "15.0.0", "react": "19.0.0", "@stripe/stripe-js": "^4.0.0", "posthog-js": "^1.0.0", "@sentry/nextjs": "^8.0.0", "@vercel/analytics": "^1.0.0", "@segment/analytics-next": "^1.0.0", "algoliasearch": "^5.0.0", "dayjs": "^1.11.0", "lucide-react": "^0.400.0" }'
 cat > app/layout.tsx <<'EOF'
 import { Analytics } from '@vercel/analytics/react';
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (<html><body>{children}<Analytics /></body></html>);
 }
 EOF
+cat > app/orders.tsx <<'EOF'
+import dayjs from 'dayjs';
+import { Package } from 'lucide-react';
+export const Order = ({ at }: { at: string }) => <p><Package /> {dayjs(at).format('D MMM')}</p>;
+EOF
+cat > app/invoices.tsx <<'EOF'
+import dayjs from 'dayjs';
+import { FileText } from 'lucide-react';
+export const Invoice = ({ at }: { at: string }) => <p><FileText /> {dayjs(at).format('D MMM YYYY')}</p>;
+EOF
 printf 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=\nNEXT_PUBLIC_POSTHOG_KEY=\nNEXT_PUBLIC_ALGOLIA_APP_ID=\nNEXT_PUBLIC_ALGOLIA_SEARCH_KEY=\n' > .env.example
 git add -A && ai 2026-04-09T23:05:00Z "feat: analytics, search and tracking setup" "Claude <noreply@anthropic.com>"
+
+# An assistant fixes a date bug by pulling in a second date library and another icon set,
+# adds two id generators and lodash, and wires up a telemetry SDK "for a quick test" that never gets a key.
+pkg web '{ "next": "15.0.0", "react": "19.0.0", "@stripe/stripe-js": "^4.0.0", "posthog-js": "^1.0.0", "@sentry/nextjs": "^8.0.0", "@vercel/analytics": "^1.0.0", "@segment/analytics-next": "^1.0.0", "algoliasearch": "^5.0.0", "dayjs": "^1.11.0", "lucide-react": "^0.400.0", "moment": "^2.30.0", "react-icons": "^5.0.0", "@telemetrix/browser": "^0.3.0", "lodash": "^4.17.21", "uuid": "^10.0.0", "nanoid": "^5.0.0" }' '{ "dev": "next dev", "build": "next build" }'
+cat > app/schedule.tsx <<'EOF'
+import moment from 'moment';
+import { FaCalendar } from 'react-icons/fa';
+import { nanoid } from 'nanoid';
+import { v4 } from 'uuid';
+export const Slot = ({ at }: { at: string }) => <p key={nanoid()} id={v4()}><FaCalendar /> {moment(at).fromNow()}</p>;
+EOF
+cat > app/telemetry.ts <<'EOF'
+// Telemetrix browser SDK (quick test, remove before release).
+import { init } from '@telemetrix/browser';
+const key = process.env.NEXT_PUBLIC_TELEMETRIX_PUBLISHABLE_KEY;
+if (key) init({ key });
+EOF
+git add -A && ai 2026-07-21T00:40:00Z "fix: relative times on schedule page" "Claude <noreply@anthropic.com>"
 
 # ── worker (python) ───────────────────────────────────────────────────
 mkdir -p "$ORG/worker/jobs" && cd "$ORG/worker" && git init -q
@@ -131,6 +159,7 @@ integrations:
   mixpanel:     { cost: 28 }
   sendgrid:     { cost: 20 }
   aws-s3:       { owner: platform, cost: 14 }
+  telemetrix:   { cost: 99 }
 EOF
 
 cd "$HERE"

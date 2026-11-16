@@ -5,6 +5,10 @@ export interface DeclaredPackage {
   name: string;
   dev: boolean;
   line?: number;
+  /** Version spec where the manifest has one (npm/composer), e.g. "^14", "workspace:*". */
+  version?: string;
+  /** go.mod `// indirect` requirements are kept but flagged. */
+  indirect?: boolean;
 }
 
 function lineOf(text: string, index: number): number {
@@ -59,8 +63,8 @@ function parsePackageJson(text: string): DeclaredPackage[] {
     ['devDependencies', true],
   ];
   for (const [section, dev] of sections) {
-    for (const name of Object.keys(pkg[section] ?? {})) {
-      out.push({ ecosystem: 'npm', name, dev, line: findLine(text, `"${name}"`) });
+    for (const [name, version] of Object.entries(pkg[section] ?? {})) {
+      out.push({ ecosystem: 'npm', name, dev, line: findLine(text, `"${name}"`), version: String(version) });
     }
   }
   return out;

@@ -51,7 +51,7 @@ export interface WalkedFile {
   abs: string;
   rel: string; // posix-style, relative to root
   kind: FileKind;
-  lang?: 'js' | 'python' | 'go' | 'ruby' | 'rust' | 'other';
+  lang?: 'js' | 'python' | 'go' | 'ruby' | 'rust' | 'css' | 'other';
   test: boolean;
   size: number;
 }
@@ -74,6 +74,9 @@ const OTHER_SOURCE_EXT: Record<string, WalkedFile['lang']> = {
   '.exs': 'other',
   '.m': 'other',
 };
+const CSS_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.pcss']);
+/** Tool config files that reference packages by name (.eslintrc, .babelrc, tsconfig.json, …). */
+const RC_FILE = /^(\.[\w-]+rc(\.(json|ya?ml|js|cjs|mjs|toml))?|tsconfig[\w.-]*\.json|jsconfig\.json|[\w-]+\.config\.json|angular\.json|nest-cli\.json|turbo\.json|nx\.json|project\.json|lerna\.json|components\.json|babel\.config\.json|\.swcrc|deno\.jsonc?|biome\.jsonc?|setup\.cfg|tox\.ini|pytest\.ini|\.pre-commit-config\.ya?ml)$/;
 const CONFIG_EXT = new Set(['.yml', '.yaml', '.toml', '.tf', '.tfvars', '.ini', '.conf', '.properties', '.gradle', '.xml', '.plist']);
 const CONFIG_JSON = new Set(['app.json', 'app.config.json', 'vercel.json', 'netlify.json', 'firebase.json', 'eas.json', 'now.json', 'railway.json', 'render.json', 'fly.json', 'wrangler.json', 'wrangler.jsonc', 'serverless.json', 'appsettings.json', 'appsettings.Development.json', 'appsettings.Production.json']);
 const MANIFESTS = new Set(['package.json', 'pyproject.toml', 'Pipfile', 'go.mod', 'Gemfile', 'composer.json', 'Cargo.toml']);
@@ -98,7 +101,10 @@ export function isTestPath(rel: string): boolean {
   );
 }
 
+const LOCKFILES = new Set(['pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'npm-shrinkwrap.json', 'bun.lockb', 'bun.lock', 'poetry.lock', 'Pipfile.lock', 'uv.lock', 'pdm.lock', 'Cargo.lock', 'composer.lock', 'Gemfile.lock', 'go.sum', 'packages.lock.json']);
+
 function classify(name: string, rel: string): Pick<WalkedFile, 'kind' | 'lang'> | undefined {
+  if (LOCKFILES.has(name)) return undefined; // lists every package; would make everything look "configured"
   if (MANIFESTS.has(name) || /^requirements([-_.][\w.-]+)?\.txt$/i.test(name) || name.endsWith('.csproj')) {
     return { kind: 'manifest' };
   }
@@ -107,7 +113,9 @@ function classify(name: string, rel: string): Pick<WalkedFile, 'kind' | 'lang'> 
   if (/^(docker-)?compose([.-][\w-]+)?\.ya?ml$/.test(name)) return { kind: 'env' };
   if (/\.min\.[cm]?js$|\.bundle\.js$|\.chunk\.js$|\.d\.[cm]?ts$|\.map$/.test(name)) return undefined;
   const ext = extname(name).toLowerCase();
+  if (RC_FILE.test(name) && !JS_EXT.has(ext)) return { kind: 'config' };
   if (JS_EXT.has(ext)) return { kind: 'source', lang: 'js' };
+  if (CSS_EXT.has(ext)) return { kind: 'source', lang: 'css' };
   const lang = OTHER_SOURCE_EXT[ext];
   if (lang) return { kind: 'source', lang };
   if (CONFIG_EXT.has(ext) || CONFIG_JSON.has(name)) {
